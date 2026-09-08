@@ -57,6 +57,11 @@ jobs:
             exit 1
           fi
           echo "Signed APK ready"
+          # 打印签名证书指纹(升级一致性锚点，应与 keystore 的 SHA-256 指纹一致)
+          BT="$ANDROID_HOME/build-tools"
+          APKSIGNER=$(ls "$BT"/*/apksigner 2>/dev/null | sort -V | tail -1)
+          echo "apksigner: $APKSIGNER"
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
