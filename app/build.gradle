@@ -3,11 +3,12 @@ plugins {
 }
 
 // —— 签名配置：CI 通过环境变量注入 keystore；本地无密钥时可正常构建 debug ——
-def keystoreB64 = System.getenv('KEYSTORE_B64')
-def storePass = System.getenv('KEYSTORE_PASSWORD')
-def keyPass = System.getenv('KEY_PASSWORD') ?: storePass
-def keyAlias = System.getenv('KEY_ALIAS') ?: 'turborush'
-def hasSigning = keystoreB64 != null && storePass != null
+// 注意：局部变量名避免与 signingConfigs 的 DSL setter(keyAlias 等)同名，否则 Groovy 会把 setter 调用解析为变量调用
+def ksB64 = System.getenv('KEYSTORE_B64')
+def ksStorePass = System.getenv('KEYSTORE_PASSWORD')
+def ksKeyPass = System.getenv('KEY_PASSWORD') ?: ksStorePass
+def ksAlias = System.getenv('KEY_ALIAS') ?: 'turborush'
+def hasSigning = ksB64 != null && ksStorePass != null
 
 // versionCode/versionName 支持 CI 通过 -P 参数覆盖(用于无缝升级)
 def vCode = project.hasProperty('versionCode') ? project.property('versionCode').toString().toInteger() : 1
@@ -31,11 +32,11 @@ android {
                 // CI 用：从 base64 还原 keystore 到临时文件
                 def tmpKs = new File(project.buildDir, 'release-keystore.p12')
                 tmpKs.parentFile.mkdirs()
-                tmpKs.bytes = Base64.decoder.decode(keystoreB64)
+                tmpKs.bytes = Base64.decoder.decode(ksB64)
                 storeFile tmpKs
-                storePassword storePass
-                keyAlias keyAlias
-                keyPassword keyPass
+                storePassword ksStorePass
+                keyAlias ksAlias
+                keyPassword ksKeyPass
             }
         }
     }
