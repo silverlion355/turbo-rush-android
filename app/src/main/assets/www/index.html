@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>极速狂飙 · Turbo Rush（网页版原型）</title>
+<link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body>
+<div id="stage">
+
+  <div id="wrap">
+    <canvas id="game"></canvas>
+
+    <!-- 主菜单 -->
+    <div id="menu" class="overlay">
+      <div class="card">
+        <div class="logo">
+          <svg class="logo-car" viewBox="0 0 64 32" aria-hidden="true">
+            <ellipse cx="32" cy="24" rx="26" ry="6" fill="rgba(0,0,0,.35)"/>
+            <path d="M8 13 L16 5 H44 L52 13 L56 13 Q59 13 59 16 L59 21 Q59 24 56 24 L8 24 Q5 24 5 21 L5 16 Q5 13 8 13 Z" fill="#e0352b"/>
+            <path d="M10 14 L17 8 H42 L49 14 Z" fill="#f4e6b0" opacity=".85"/>
+            <path d="M16 24 L16 20 H48 L48 24 Z" fill="#0d0d11"/>
+            <rect x="13" y="19" width="8" height="5" rx="1.4" fill="#ffd23f"/>
+            <rect x="43" y="19" width="8" height="5" rx="1.4" fill="#ffd23f"/>
+            <rect x="5" y="15" width="3" height="3" rx="1" fill="#fff7cf"/>
+            <rect x="56" y="15" width="3" height="3" rx="1" fill="#fff7cf"/>
+          </svg>
+          <h1>极速狂飙</h1>
+          <p class="sub">TURBO RUSH · v0.1 原型</p>
+        </div>
+        <button id="btnStart" class="btn primary">开始游戏</button>
+        <div class="tips">
+          <p><i class="tag t-touch">触屏</i>按住屏幕左右拖动，赛车跟随手指</p>
+          <p><i class="tag t-key">键盘</i>← → / A D 转向 · ↑ 加速 · ↓ 减速</p>
+          <p><i class="tag t-gem">玩法</i>收集发光宝石加分，躲开车流</p>
+          <p><i class="tag t-heart">生命</i>3 条命 · 撞车急减速 · 可升级 Android</p>
+        </div>
+        <p class="best">历史最高 <span id="menuBest">0</span></p>
+      </div>
+    </div>
+
+    <!-- 暂停 -->
+    <div id="paused" class="overlay hidden">
+      <div class="card small">
+        <h2>已暂停</h2>
+        <button id="btnResume" class="btn primary">继续</button>
+        <button id="btnQuit" class="btn ghost">回主菜单</button>
+      </div>
+    </div>
+
+    <!-- 结束 -->
+    <div id="over" class="overlay hidden">
+      <div class="card">
+        <h2 id="overTitle">挑战结束</h2>
+        <div class="stats">
+          <div><span>得分</span><b id="stScore">0</b></div>
+          <div><span>宝石</span><b id="stGems">0</b></div>
+          <div><span>里程</span><b id="stDist">0 m</b></div>
+          <div><span>最高</span><b id="stBest">0</b></div>
+        </div>
+        <button id="btnAgain" class="btn primary">再跑一次</button>
+        <button id="btnMenu" class="btn ghost">回主菜单</button>
+      </div>
+    </div>
+
+    <!-- 右上悬浮按钮 -->
+    <button id="btnPause" class="fab hidden" aria-label="暂停">
+      <svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+    </button>
+    <button id="btnSound" class="fab hidden" aria-label="声音">
+      <svg class="ic-on" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"/></svg>
+      <svg class="ic-off" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.6 3l3.2-3.2-1.4-1.4-3.2 3.2-3.2-3.2-1.4 1.4L13.8 12l-3.2 3.2 1.4 1.4 3.2-3.2 3.2 3.2 1.4-1.4-3.2-3.2z"/></svg>
+    </button>
+
+  </div>
+
+  <p class="footnote">网页版原型 → 预留升级 Android（WebView + Native Bridge）</p>
+</div>
+
+<script src="js/util.js?v=2"></script>
+<script src="js/config.js?v=2"></script>
+<script src="js/audio.js?v=2"></script>
+<script src="js/sprites.js?v=2"></script>
+<script src="js/input.js?v=2"></script>
+<script src="js/game.js?v=2"></script>
+<script src="js/main.js?v=2"></script>
+</body>
+</html>

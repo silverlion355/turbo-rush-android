@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动图标：程序化矢量（深蓝夜空 + 赛道 + 俯视红跑车），免二进制资源 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 深蓝底 -->
+    <path
+        android:fillColor="#0F2A43"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- 中央道路标线 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55"
+        android:pathData="M51,0h6v108h-6z" />
+    <!-- 车身 -->
+    <path
+        android:fillColor="#E0352B"
+        android:pathData="M40,26 h28 q8,0 8,9 v36 q0,9 -8,9 h-28 q-8,0 -8,-9 v-36 q0,-9 8,-9 Z" />
+    <!-- 车身暗部/侧影 -->
+    <path
+        android:fillColor="#9E241E"
+        android:pathData="M68,26 h8 q8,0 8,9 v36 q0,9 -8,9 h-8 Z" />
+    <!-- 前挡风玻璃光带 -->
+    <path
+        android:fillColor="#D7ECFF"
+        android:pathData="M45,35 h18 v7 h-18 Z" />
+    <!-- 车顶暗区 -->
+    <path
+        android:fillColor="#1B2A3A"
+        android:pathData="M47,45 h14 v14 h-14 Z" />
+    <!-- 尾灯(红色亮区) -->
+    <path
+        android:fillColor="#FF6A5E"
+        android:pathData="M40,72 h6 v5 h-6 Z M62,72 h6 v5 h-6 Z" />
+    <!-- 大灯(黄) -->
+    <path
+        android:fillColor="#FFD23F"
+        android:pathData="M40,29 h5 v5 h-5 Z M63,29 h5 v5 h-5 Z" />
+</vector>

@@ -1,0 +1,203 @@
+/* =========================================================
+   极速狂飙 Turbo Rush — 样式表
+   UI 全部相对/百分比布局，可原样嵌入 Android WebView 竖屏壳
+   ========================================================= */
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body { height: 100%; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: radial-gradient(120% 90% at 50% 8%, #1d3350 0%, #0e1a2b 55%, #070d16 100%);
+  color: #eef4ff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+#stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+/* 游戏"屏幕"：保持 480:800 比例，宽高自适应（含竖屏手机与桌面） */
+#wrap {
+  position: relative;
+  aspect-ratio: 480 / 800;
+  height: min(94vh, calc((100vw - 32px) * 5 / 3));
+  max-width: 98vw;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 18px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08) inset;
+  background: #101820;
+}
+
+#game {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: pointer;
+}
+
+/* ---------- 悬浮层 ---------- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: radial-gradient(120% 100% at 50% 30%, rgba(10,18,32,.55), rgba(6,10,18,.88));
+  backdrop-filter: blur(2px);
+  transition: opacity .25s ease;
+}
+.overlay.hidden { opacity: 0; pointer-events: none; }
+
+.card {
+  width: min(88%, 320px);
+  background: linear-gradient(180deg, rgba(26,40,62,.96), rgba(12,20,34,.96));
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 20px;
+  padding: 22px 20px;
+  text-align: center;
+  box-shadow: 0 14px 40px rgba(0,0,0,.5);
+}
+.card.small { width: min(70%, 260px); }
+
+.logo .logo-car { width: 92px; height: 46px; filter: drop-shadow(0 6px 10px rgba(0,0,0,.5)); }
+.logo h1 {
+  margin-top: 6px;
+  font-size: 30px;
+  letter-spacing: 6px;
+  background: linear-gradient(180deg, #fff 20%, #ffb74d 60%, #ff7043);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.logo .sub { margin-top: 2px; font-size: 11px; letter-spacing: 3px; color: #8fb3dd; }
+
+.btn {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px 0;
+  border: 0;
+  border-radius: 14px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: #fff;
+  cursor: pointer;
+  transition: transform .12s ease, filter .12s ease;
+}
+.btn:active { transform: scale(.96); }
+.btn.primary {
+  background: linear-gradient(180deg, #ff8a50, #e0352b);
+  box-shadow: 0 6px 18px rgba(224,53,43,.45), 0 0 0 1px rgba(255,255,255,.18) inset;
+}
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost {
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.2);
+  color: #cfd8e6;
+  font-weight: 600;
+  letter-spacing: 2px;
+  font-size: 15px;
+}
+
+.tips { margin: 16px 2px 0; text-align: left; display: grid; gap: 7px; }
+.tips p { font-size: 12.5px; line-height: 1.5; color: #b9c9de; display: flex; align-items: center; gap: 8px; }
+.tips .tag {
+  flex: 0 0 auto;
+  min-width: 34px;
+  text-align: center;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #fff;
+  padding: 2px 5px;
+  border-radius: 6px;
+  letter-spacing: 0;
+}
+.t-touch   { background: #e0352b; }
+.t-key     { background: #2f6fd1; }
+.t-gem     { background: #9c4fd8; }
+.t-heart   { background: #c2345a; }
+
+.best { margin-top: 14px; font-size: 13px; color: #ffd23f; letter-spacing: 1px; }
+.best span { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+#paused h2, #over h2 {
+  font-size: 26px;
+  letter-spacing: 4px;
+  color: #fff;
+}
+#over h2.record { color: #ffd23f; }
+
+.stats {
+  margin: 16px 0 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.stats div {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px;
+  padding: 8px 4px;
+}
+.stats span { display: block; font-size: 10.5px; color: #8fa5bf; letter-spacing: 2px; }
+.stats b { display: block; font-size: 20px; margin-top: 2px; color: #fff; font-variant-numeric: tabular-nums; }
+.stats div.gold b { color: #ffd23f; }
+
+/* ---------- 悬浮小按钮 ---------- */
+.fab {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 12;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.25);
+  background: rgba(8,14,24,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+}
+#btnSound { right: 54px; }
+.fab svg { width: 20px; height: 20px; fill: currentColor; }
+.fab .ic-off { display: none; }
+.fab.muted .ic-on { display: none; }
+.fab.muted .ic-off { display: block; color: #ff9b8a; }
+.fab:active { transform: scale(.9); }
+.fab.hidden { display: none; }
+
+.footnote {
+  font-size: 11px;
+  color: #6d87a5;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+@media (min-width: 760px) and (min-height: 700px) {
+  .card { padding: 26px 24px; }
+  .tips p { font-size: 13.5px; }
+  .footnote { font-size: 12px; }
+}
