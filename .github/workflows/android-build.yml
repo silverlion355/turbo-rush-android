@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Assemble Debug APK
+    name: Assemble Release APK
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,13 +33,35 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      # 计算 versionCode：GitHub Actions 运行号(同一仓库递增)，保证每次新包 versionCode 更大 → 可覆盖安装
+      - name: Resolve version
+        id: ver
+        run: |
+          echo "vc=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "vn=0.${{ github.run_number }}.0" >> "$GITHUB_OUTPUT"
+
+      - name: Build release APK (signed)
+        run: gradle :app:assembleRelease --no-daemon --stacktrace -PversionCode=${{ steps.ver.outputs.vc }} -PversionName=${{ steps.ver.outputs.vn }}
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+
+      - name: Verify APK signature
+        run: |
+          APK=app/build/outputs/apk/release/app-release-unsigned.apk
+          # 若为 unsigned 说明签名未注入，报错阻止发布
+          if [ -f "$APK" ]; then
+            echo "::error::Keystore secrets missing - produced unsigned APK"
+            exit 1
+          fi
+          echo "Signed APK ready"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: turbo-rush-v0.1-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: turbo-rush-v${{ steps.ver.outputs.vn }}
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

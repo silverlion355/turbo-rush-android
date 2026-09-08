@@ -2,6 +2,17 @@ plugins {
     id 'com.android.application'
 }
 
+// —— 签名配置：CI 通过环境变量注入 keystore；本地无密钥时可正常构建 debug ——
+def keystoreB64 = System.getenv('KEYSTORE_B64')
+def storePass = System.getenv('KEYSTORE_PASSWORD')
+def keyPass = System.getenv('KEY_PASSWORD') ?: storePass
+def keyAlias = System.getenv('KEY_ALIAS') ?: 'turborush'
+def hasSigning = keystoreB64 != null && storePass != null
+
+// versionCode/versionName 支持 CI 通过 -P 参数覆盖(用于无缝升级)
+def vCode = project.hasProperty('versionCode') ? project.property('versionCode').toString().toInteger() : 1
+def vName = project.hasProperty('versionName') ? project.property('versionName').toString() : '0.1.0'
+
 android {
     namespace 'com.silverlion.turborush'
     compileSdk 34
@@ -10,14 +21,39 @@ android {
         applicationId "com.silverlion.turborush"
         minSdk 24            // Android 7.0+，覆盖主流设备
         targetSdk 34
-        versionCode 1
-        versionName "0.1.0"
+        versionCode vCode
+        versionName vName
+    }
+
+    signingConfigs {
+        release {
+            if (hasSigning) {
+                // CI 用：从 base64 还原 keystore 到临时文件
+                def tmpKs = new File(project.buildDir, 'release-keystore.p12')
+                tmpKs.parentFile.mkdirs()
+                tmpKs.bytes = Base64.decoder.decode(keystoreB64)
+                storeFile tmpKs
+                storePassword storePass
+                keyAlias keyAlias
+                keyPassword keyPass
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            // 保持与 release 相同签名链：使用同一 keystore(CI 已注入)，
+            // 这样 debug/release 产物都能被后续 release 覆盖安装
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
