@@ -27,6 +27,9 @@
              border:1px solid rgba(255,255,255,.18); color:#cfe6ff; height:38px; padding:0 14px; border-radius:12px;
              font-size:12.5px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
   #btnView.hidden { display:none; }
+  #btnGyro { position:absolute; right:14px; top:156px; pointer-events:auto; background:rgba(8,12,24,.6);
+             border:1px solid rgba(127,240,192,.35); color:#7ff0c0; height:38px; padding:0 14px; border-radius:12px;
+             font-size:12.5px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
   #viewBadge { position:absolute; left:50%; top:12px; transform:translateX(-50%); background:rgba(8,12,24,.5);
                border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:4px 14px; font-size:11px;
                letter-spacing:2px; color:#9fd0ff; }
@@ -90,6 +93,7 @@
   <div id="viewBadge">追尾视角</div>
   <button id="btnSound">&#9835;</button>
   <button id="btnView" class="hidden">切换视角</button>
+  <button id="btnGyro">陀螺仪·关</button>
   <div id="combo"><div class="cm" id="comboTxt">x1</div><div class="bar"><i id="comboBar"></i></div></div>
   <div id="speedBox"><div class="label">km/h</div><div id="speedVal">0</div></div>
   <div id="lives"></div>
@@ -103,11 +107,12 @@
   <div class="badge">实车级超跑 · 双视角</div>
   <button class="btn" id="btnStart">开 始</button>
   <div class="tips">
-    <span>&#128241; 触屏：按住屏幕 <b>左右拖动转向</b> · 上滑加速</span><br>
-    <span>&#9000; 键盘：←→ / A D 转向 · ↑ 加速 · ↓ 刹车 · <b>C 切换视角</b></span><br>
+    <span>&#128241; 触屏：<b>上滑加速 · 下滑减速</b> · 左右拖动转向</span><br>
+    <span>&#128268; 设备姿态：点右上 <b>陀螺仪</b> 即可用倾斜机身调整视角</span><br>
+    <span>&#9000; 键盘：←→ / A D 转向 · ↑ 加速 · ↓ 刹车 · <b>C 视角 · G 陀螺仪</b></span><br>
     <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞车损失生命</span>
   </div>
-  <div class="ver">v3.0 · Ferrari F8 风格 · 追尾 / 驾驶舱双视角</div>
+  <div class="ver">v4.0 · 弯道赛道 · 陀螺仪 · 真实贴图环境</div>
 </div>
 
 <!-- 结束 -->

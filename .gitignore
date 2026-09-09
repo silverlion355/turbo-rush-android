@@ -14,3 +14,6 @@ local.properties
 *.jks
 # 签名密钥（严禁入库，仅存 GitHub Secrets）
 keystore/
+
+# 本地下载的 APK 产物（走 CI artifact / Release）
+apk/
