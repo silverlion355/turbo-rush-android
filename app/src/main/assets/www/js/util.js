@@ -30,3 +30,12 @@ RG.rr = (ctx, x, y, w, h, r) => {
 };
 
 RG.now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+/* 原生触感（Android WebView 内由 AndroidBridge.vibrate 触达，浏览器中静默） */
+RG.vibrate = (ms) => {
+  try {
+    if (ms > 0 && window.AndroidBridge && typeof window.AndroidBridge.vibrate === 'function') {
+      window.AndroidBridge.vibrate(ms);
+    }
+  } catch (e) { /* 静默 */ }
+};

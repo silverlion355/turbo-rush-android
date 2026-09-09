@@ -1,6 +1,10 @@
 package com.silverlion.turborush;
 
 import android.content.Context;
+import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.widget.Toast;
@@ -14,6 +18,7 @@ import android.widget.Toast;
  *   nativeCall('onGameOver', payload)  → onGameOver(jsonStr)
  *   nativeCall('onPause', null)        → onPause(null)
  *   nativeCall('onResume', null)       → onResume(null)
+ *   触感：AndroidBridge.vibrate(ms)         → 短震（宝石/碰撞）
  *
  * 注意：Android 注入对象在网页端是原生宿主对象，原生侧方法必须带
  *       @JavascriptInterface 注解且只能被 WebView 主线程调用。
@@ -33,6 +38,36 @@ public class JsBridge {
     public void toast(String message) {
         if (message != null && !message.isEmpty()) {
             Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * 触感反馈：网页侧调 AndroidBridge.vibrate(70) 触发 70ms 短震。
+     * 用于宝石连击/碰撞。Android 8+ 使用 VibrationEffect.createOneShot，
+     * 旧版本回退 vibrate(long) 全局方法。
+     */
+    @JavascriptInterface
+    public void vibrate(long ms) {
+        if (ms <= 0) return;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                VibratorManager vm = (VibratorManager) appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                if (vm == null) return;
+                Vibrator v = vm.getDefaultVibrator();
+                if (v == null || !v.hasVibrator()) return;
+                v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE));
+            } else {
+                Vibrator v = (Vibrator) appContext.getSystemService(Context.VIBRATOR_SERVICE);
+                if (v == null || !v.hasVibrator()) return;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE));
+                } else {
+                    //noinspection deprecation
+                    v.vibrate(ms);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "vibrate failed: " + e.getMessage());
         }
     }
 

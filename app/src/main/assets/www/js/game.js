@@ -230,6 +230,7 @@ RG.Game = class Game {
           this.popup(g.x, g.y - 16, '+' + val + (mult > 1 ? ' x' + mult : ''), mult > 1 ? '#ffd23f' : '#ffe25a');
           this.burst(g.x, g.y, 8, ['#ffe25a', '#fff6c9', g.color]);
           RG.Audio.gem(this.gemChain);
+          RG.vibrate(this.gemChain >= 5 ? 14 : 7);
         }
       }
       /* —— 碰撞：车辆 —— */
@@ -260,6 +261,7 @@ RG.Game = class Game {
     this.shake = 15;
     this.gemChain = 0;   // 撞车打断宝石连击
     RG.Audio.crash();
+    RG.vibrate(this.lives <= 0 ? 110 : 70);
     const mx = (this.p.x + car.x) / 2, my = (this.p.y + car.y) / 2;
     this.burst(mx, my, 16, ['#ffd23f', '#ff8a3d', '#ffffff']);
     if (this.lives <= 0) {

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>极速狂飙 Turbo Rush</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:radial-gradient(ellipse at 50% 0%,#1a2138 0%,#0b0f1a 60%,#050810 100%);
+              font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; color:#fff; user-select:none; }
+  .wrap { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:18px; padding:24px; text-align:center; }
+  .logo { font-size:38px; font-weight:900; letter-spacing:2px; line-height:1.1;
+          background:linear-gradient(180deg,#fff 20%,#ffd23f 70%,#ff9d2e); -webkit-background-clip:text;
+          background-clip:text; color:transparent; text-shadow:0 0 30px rgba(255,180,60,.2); }
+  .sub { font-size:11px; color:#9fb0c8; letter-spacing:4px; margin-top:-8px; }
+  .grid { display:flex; flex-direction:column; gap:14px; width:100%; max-width:340px; margin-top:8px; }
+  .card { position:relative; cursor:pointer; border:1px solid rgba(255,255,255,.14);
+          background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
+          border-radius:18px; padding:18px 18px 16px; text-align:left; overflow:hidden; }
+  .card::before { content:""; position:absolute; inset:0; background:linear-gradient(120deg,transparent 0%,rgba(255,210,63,.08) 50%,transparent 100%);
+                 transform:translateX(-100%); transition:transform .4s; }
+  .card:active::before { transform:translateX(100%); }
+  .card:active { transform:scale(.97); }
+  .card h2 { font-size:18px; font-weight:800; margin-bottom:4px; display:flex; align-items:center; gap:8px; }
+  .badge { font-size:10px; padding:2px 8px; border-radius:999px; letter-spacing:1px;
+           background:rgba(127,240,192,.15); color:#7ff0c0; border:1px solid rgba(127,240,192,.4); }
+  .badge.hot { background:rgba(255,80,120,.18); color:#ff8aa3; border-color:rgba(255,80,120,.5); }
+  .card p { font-size:12.5px; color:#aab8cc; line-height:1.55; }
+  .preview { height:64px; margin-top:10px; border-radius:10px; background:#0c1224; position:relative; overflow:hidden; }
+  .preview .road { position:absolute; left:0; right:0; bottom:0; height:46%; background:#1d2128; }
+  .preview .road::before { content:""; position:absolute; left:50%; top:6px; bottom:6px; width:3px; transform:translateX(-50%);
+                           background:repeating-linear-gradient(to bottom,#f5c542 0 8px,transparent 8px 16px); }
+  .preview .car2d { position:absolute; left:50%; bottom:6px; transform:translateX(-50%); width:36px; height:48px;
+                    background:linear-gradient(180deg,#d40000,#9c0d0d); border-radius:6px 6px 4px 4px;
+                    box-shadow:0 2px 6px rgba(0,0,0,.5); }
+  .preview .car2d::after { content:""; position:absolute; left:6px; right:6px; top:6px; height:14px;
+                           background:#26303e; border-radius:3px; }
+  .preview.three { background:linear-gradient(180deg,#8fc3e8 0%,#cfe4f0 100%); }
+  .preview.three .road3 { position:absolute; left:50%; bottom:0; transform:translateX(-50%) skewY(-6deg);
+                          width:60%; height:80%; background:#464a53; }
+  .preview.three .car3 { position:absolute; left:50%; bottom:6px; transform:translateX(-50%); width:46px; height:30px;
+                         background:linear-gradient(180deg,#d40000,#9c0d0d); border-radius:6px 6px 4px 4px;
+                         box-shadow:0 2px 8px rgba(0,0,0,.5); }
+  .preview.three .car3::before { content:""; position:absolute; left:4px; right:4px; top:3px; height:8px;
+                                background:#0b1220; border-radius:2px; opacity:.7; }
+  .arrow { position:absolute; right:14px; top:14px; font-size:20px; color:#ffd23f; }
+  .ver { position:absolute; bottom:18px; font-size:10px; color:#55627a; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">极速狂飙</div>
+  <div class="sub">TURBO RUSH · v0.5</div>
+
+  <div class="grid">
+    <div class="card" id="card3d">
+      <h2>实车级 3D 超跑 <span class="badge hot">推荐</span></h2>
+      <p>Ferrari F8 风格程序化建模 · 物理材质车漆 · 追尾 / 驾驶舱双视角 · 完整宝石连击与极速反馈。</p>
+      <div class="preview three"><div class="road3"></div><div class="car3"></div></div>
+      <div class="arrow">→</div>
+    </div>
+
+    <div class="card" id="card2d">
+      <h2>2D 经典极速狂飙 <span class="badge">轻量</span></h2>
+      <p>程序化绘制赛车 / 8 款涂装 / 60s 极速冲刺 · 适合低端机与快速开局。</p>
+      <div class="preview"><div class="road"></div><div class="car2d"></div></div>
+      <div class="arrow">→</div>
+    </div>
+  </div>
+
+  <div class="ver">Turbo Rush · WebGL + Canvas · Android Native Bridge</div>
+</div>
+
+<script>
+  // 轻反馈（已进入 Android WebView 时由原生桥接管）
+  try { if (window.AndroidBridge && AndroidBridge.vibrate) AndroidBridge.vibrate(15); } catch (e) {}
+
+  // URL hash 优先：#3d / #2d 直跳
+  function go(file) {
+    if (window.AndroidBridge && AndroidBridge.vibrate) try { AndroidBridge.vibrate(8); } catch (e) {}
+    setTimeout(function () { window.location.replace(file); }, 80);
+  }
+  document.getElementById('card3d').addEventListener('click', function () { go('www3d/index.html'); });
+  document.getElementById('card2d').addEventListener('click', function () { go('www/index.html'); });
+  if (location.hash === '#3d') go('www3d/index.html');
+  else if (location.hash === '#2d') go('www/index.html');
+</script>
+</body>
+</html>

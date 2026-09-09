@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>极速狂飙 3D · Turbo Rush 3D Complete</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0b0f1a; touch-action:none;
+              font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; user-select:none; -webkit-user-select:none; }
+  #game { position:fixed; inset:0; display:block; }
+  /* —— HUD —— */
+  #hud { position:fixed; inset:0; pointer-events:none; color:#fff; z-index:3; }
+  .top { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between;
+         align-items:flex-start; padding:12px 14px; }
+  .score-box { background:rgba(8,12,24,.55); border:1px solid rgba(255,255,255,.14); border-radius:14px;
+               padding:6px 13px; backdrop-filter:blur(6px); text-align:center; }
+  .score-box .label { font-size:10px; letter-spacing:2px; opacity:.65; }
+  .score-box .value { font-size:21px; font-weight:800; font-variant-numeric:tabular-nums; }
+  #score { color:#ffd23f; }
+  #distVal { color:#7fd7ff; }
+  #btnSound { position:absolute; right:14px; top:64px; pointer-events:auto; background:rgba(8,12,24,.5);
+              border:1px solid rgba(255,255,255,.15); color:#fff; width:38px; height:38px; border-radius:12px;
+              font-size:17px; cursor:pointer; }
+  #btnView { position:absolute; right:14px; top:110px; pointer-events:auto; background:rgba(8,12,24,.6);
+             border:1px solid rgba(255,255,255,.18); color:#cfe6ff; height:38px; padding:0 14px; border-radius:12px;
+             font-size:12.5px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
+  #btnView.hidden { display:none; }
+  #viewBadge { position:absolute; left:50%; top:12px; transform:translateX(-50%); background:rgba(8,12,24,.5);
+               border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:4px 14px; font-size:11px;
+               letter-spacing:2px; color:#9fd0ff; }
+  /* —— 连击条 —— */
+  #combo { position:absolute; left:50%; top:52px; transform:translateX(-50%); text-align:center; pointer-events:none;
+           opacity:0; transition:opacity .2s; }
+  #combo .cm { font-size:20px; font-weight:900; color:#ffd23f; text-shadow:0 0 14px rgba(255,200,60,.8); letter-spacing:1px; }
+  #combo .bar { width:150px; height:4px; border-radius:2px; background:rgba(255,255,255,.16); margin:4px auto 0; overflow:hidden; }
+  #combo .bar i { display:block; height:100%; width:100%; background:linear-gradient(90deg,#ffd23f,#ff7a2e); }
+  /* —— 速度表 —— */
+  #speedBox { position:absolute; left:14px; bottom:14px; background:rgba(8,12,24,.55); border:1px solid rgba(255,255,255,.14);
+              border-radius:14px; padding:6px 13px; backdrop-filter:blur(6px); text-align:center; }
+  #speedBox .label { font-size:10px; letter-spacing:2px; opacity:.65; }
+  #speedVal { font-size:23px; font-weight:800; color:#ffb35c; font-variant-numeric:tabular-nums; }
+  .unit { font-size:11px; opacity:.7; }
+  #lives { position:absolute; right:14px; bottom:14px; display:flex; gap:6px; filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+  .heart { width:20px; height:20px; transform:rotate(45deg); border-radius:4px; background:linear-gradient(135deg,#ff5a6e,#ff2d55);
+           box-shadow:0 0 8px rgba(255,45,85,.6); }
+  .heart.off { background:#263040; box-shadow:none; }
+  /* —— 飘分 —— */
+  .pop { position:absolute; transform:translate(-50%,-50%); font-weight:900; font-size:17px; color:#ffe25a;
+         text-shadow:0 1px 6px rgba(0,0,0,.7); pointer-events:none; z-index:6; animation:popRise .9s ease-out forwards; }
+  .pop.x2 { color:#ff9d2e; font-size:20px; }
+  .pop.x15 { color:#7fe8ff; font-size:19px; }
+  @keyframes popRise { 0%{opacity:0; transform:translate(-50%,-30%) scale(.7);} 12%{opacity:1; transform:translate(-50%,-60%) scale(1.08);}
+                       100%{opacity:0; transform:translate(-50%,-260%) scale(1);} }
+  #flash { position:fixed; inset:0; pointer-events:none; z-index:5; opacity:0;
+           background:radial-gradient(ellipse at center, transparent 40%, rgba(255,40,60,.55) 100%); }
+  /* —— 叠加层 —— */
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+             gap:16px; background:rgba(6,9,18,.35); z-index:10; text-align:center; padding:24px; }
+  .overlay.hidden { display:none; }
+  .logo-3d { font-size:40px; font-weight:900; letter-spacing:2px; line-height:1.15;
+             background:linear-gradient(180deg,#fff 20%,#ffd23f 70%,#ff9d2e); -webkit-background-clip:text;
+             background-clip:text; color:transparent; text-shadow:0 0 30px rgba(255,180,60,.2); }
+  .sub { font-size:12px; color:#9fb0c8; letter-spacing:4px; }
+  .badge { font-size:11px; color:#7ff0c0; border:1px solid rgba(127,240,192,.4); padding:3px 10px; border-radius:999px;
+           background:rgba(127,240,192,.08); letter-spacing:1px; }
+  .btn { pointer-events:auto; cursor:pointer; border:none; border-radius:16px; padding:13px 42px; font-size:18px; font-weight:800;
+         letter-spacing:3px; color:#1a1204; background:linear-gradient(180deg,#ffd23f,#ff9d2e); box-shadow:0 6px 24px rgba(255,160,40,.35);
+         transition:transform .08s; }
+  .btn:active { transform:scale(.96); }
+  .btn.ghost { background:rgba(255,255,255,.06); color:#cfe0f5; border:1px solid rgba(255,255,255,.18); box-shadow:none; }
+  .tips { font-size:11.5px; color:#7e8ba3; line-height:1.95; }
+  .tips b { color:#bcd; }
+  #overTitle { font-size:26px; font-weight:900; color:#ff5a6e; letter-spacing:2px; }
+  #overStats { font-size:13px; color:#cbd6e6; line-height:2.1; }
+  #overStats b { color:#ffd23f; font-size:17px; }
+  .no-webgl { color:#ff8a8a; font-size:14px; max-width:280px; line-height:1.8; }
+  .ver { position:absolute; bottom:18px; font-size:10px; color:#55627a; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="top">
+    <div class="score-box"><div class="label">得分</div><div class="value" id="score">0</div></div>
+    <div class="score-box"><div class="label">里程 m</div><div class="value" id="distVal">0</div></div>
+  </div>
+  <div id="viewBadge">追尾视角</div>
+  <button id="btnSound">&#9835;</button>
+  <button id="btnView" class="hidden">切换视角</button>
+  <div id="combo"><div class="cm" id="comboTxt">x1</div><div class="bar"><i id="comboBar"></i></div></div>
+  <div id="speedBox"><div class="label">km/h</div><div id="speedVal">0</div></div>
+  <div id="lives"></div>
+</div>
+<div id="flash"></div>
+
+<!-- 开始菜单 -->
+<div class="overlay" id="menu">
+  <div class="logo-3d">极速狂飙<span style="font-size:22px"> 3D</span></div>
+  <div class="sub">TURBO RUSH 3D · COMPLETE</div>
+  <div class="badge">实车级超跑 · 双视角</div>
+  <button class="btn" id="btnStart">开 始</button>
+  <div class="tips">
+    <span>&#128241; 触屏：按住屏幕 <b>左右拖动转向</b> · 上滑加速</span><br>
+    <span>&#9000; 键盘：←→ / A D 转向 · ↑ 加速 · ↓ 刹车 · <b>C 切换视角</b></span><br>
+    <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞车损失生命</span>
+  </div>
+  <div class="ver">v3.0 · Ferrari F8 风格 · 追尾 / 驾驶舱双视角</div>
+</div>
+
+<!-- 结束 -->
+<div class="overlay hidden" id="over">
+  <div id="overTitle">车辆损毁</div>
+  <div id="overStats">
+    得分 <b id="finalScore">0</b><br>
+    里程 <b id="finalDist">0</b> m · 宝石 <b id="finalGems">0</b>
+  </div>
+  <button class="btn" id="btnAgain">再 来 一 局</button>
+</div>
+
+<script src="js/three.min.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
