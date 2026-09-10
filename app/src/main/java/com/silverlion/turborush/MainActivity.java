@@ -70,7 +70,7 @@ public class MainActivity extends Activity {
         webView.setKeepScreenOn(true);
     }
 
-    /** 返回键：游戏中=暂停；菜单/结算/已暂停=退出 */
+    /** 返回键：2D 游戏中=暂停；其余情况优先回退到上一页(选卡)，无历史则退出 */
     @Override
     public void onBackPressed() {
         webView.evaluateJavascript(
@@ -84,6 +84,9 @@ public class MainActivity extends Activity {
                         webView.evaluateJavascript(
                                 "try{window.RacingGame&&RacingGame.pause&&RacingGame.pause()}catch(e){}",
                                 null);
+                    } else if (webView.canGoBack()) {
+                        // 3D / 2D 页面 → 回退到模式选卡页（选卡页会自行恢复竖屏）
+                        webView.goBack();
                     } else {
                         finish();
                     }

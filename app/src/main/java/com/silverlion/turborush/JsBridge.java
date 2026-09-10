@@ -1,6 +1,8 @@
 package com.silverlion.turborush;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -19,18 +21,22 @@ import android.widget.Toast;
  *   nativeCall('onPause', null)        → onPause(null)
  *   nativeCall('onResume', null)       → onResume(null)
  *   触感：AndroidBridge.vibrate(ms)         → 短震（宝石/碰撞）
+ *   屏幕方向：AndroidBridge.setOrientation('landscape'|'portrait'|'auto')
  *
  * 注意：Android 注入对象在网页端是原生宿主对象，原生侧方法必须带
- *       @JavascriptInterface 注解且只能被 WebView 主线程调用。
+ *       @JavascriptInterface 注解。JS 调用发生在 JavaBridge 线程，
+ *       涉及 UI 的操作必须切回主线程。
  */
 public class JsBridge {
 
     private static final String TAG = "TurboRush";
 
     private final Context appContext;
+    private final Activity activity;
 
-    public JsBridge(Context context) {
-        this.appContext = context.getApplicationContext();
+    public JsBridge(Activity activity) {
+        this.activity = activity;
+        this.appContext = activity.getApplicationContext();
     }
 
     /** 轻提示：可直接被网页端 window.AndroidBridge.toast('...') 调用 */
@@ -39,6 +45,31 @@ public class JsBridge {
         if (message != null && !message.isEmpty()) {
             Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /**
+     * 屏幕方向控制：3D 版横屏、2D 版竖屏、选卡页竖屏。
+     * 运行时 setRequestedOrientation 会覆盖 AndroidManifest 的静态声明，
+     * 且不受用户「自动旋转」开关影响。
+     */
+    @JavascriptInterface
+    public void setOrientation(String mode) {
+        final int orientation;
+        if ("landscape".equalsIgnoreCase(mode)) {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+        } else if ("portrait".equalsIgnoreCase(mode)) {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        } else {
+            orientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        }
+        if (activity == null) return;
+        activity.runOnUiThread(() -> {
+            try {
+                activity.setRequestedOrientation(orientation);
+            } catch (Exception e) {
+                Log.w(TAG, "setOrientation failed: " + e.getMessage());
+            }
+        });
     }
 
     /**

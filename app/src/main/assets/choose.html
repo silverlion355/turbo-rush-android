@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <div class="logo">极速狂飙</div>
-  <div class="sub">TURBO RUSH · v0.5</div>
+  <div class="sub">TURBO RUSH · v0.8</div>
 
   <div class="grid">
     <div class="card" id="card3d">
@@ -74,13 +74,21 @@
 </div>
 
 <script>
+  /* 选卡页固定竖屏（从 3D 横屏返回时自动转回） */
+  function lockPortrait() {
+    try { if (window.AndroidBridge && AndroidBridge.setOrientation) AndroidBridge.setOrientation('portrait'); } catch (e) { }
+  }
+  lockPortrait();
+  window.addEventListener('pageshow', lockPortrait);
+
   // 轻反馈（已进入 Android WebView 时由原生桥接管）
   try { if (window.AndroidBridge && AndroidBridge.vibrate) AndroidBridge.vibrate(15); } catch (e) {}
 
   // URL hash 优先：#3d / #2d 直跳
+  // 用 location.href（压栈）而非 replace，保证系统返回键能回到本选卡页
   function go(file) {
     if (window.AndroidBridge && AndroidBridge.vibrate) try { AndroidBridge.vibrate(8); } catch (e) {}
-    setTimeout(function () { window.location.replace(file); }, 80);
+    setTimeout(function () { window.location.href = file; }, 80);
   }
   document.getElementById('card3d').addEventListener('click', function () { go('www3d/index.html'); });
   document.getElementById('card2d').addEventListener('click', function () { go('www/index.html'); });

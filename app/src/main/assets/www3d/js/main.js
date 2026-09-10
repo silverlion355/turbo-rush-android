@@ -1085,10 +1085,19 @@
 
   /* ======== 初始化 ======== */
   function resize() {
-    W = window.innerWidth; H = window.innerHeight; dpr = window.devicePixelRatio || 1;
+    var w = window.innerWidth || document.documentElement.clientWidth || 1;
+    var h = window.innerHeight || document.documentElement.clientHeight || 1;
+    W = w; H = h; dpr = window.devicePixelRatio || 1;
     if (!renderer) return;
     renderer.setPixelRatio(Math.min(dpr, 2));
-    renderer.setSize(W, H, false);
+    // ⚠️ 关键修复：旧代码是 setSize(W, H, false)（不写 canvas 的 CSS 尺寸），
+    // 而 #game 又没声明 width/height。高 DPR 手机上 canvas 的“固有尺寸”变成
+    // 视口×2/×3，position:fixed 下按固有尺寸显示 → 屏幕只能看到画面左上角一小块
+    // （表现就是“看不到路 / 看不到车 / 看不到环境”）。
+    // 现在同步样式 + CSS 100%，让画布严格等于视口。
+    renderer.setSize(W, H);
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
     if (camera) { camera.aspect = W / H; camera.updateProjectionMatrix(); }
   }
 
@@ -1264,6 +1273,11 @@
       setViewVisible(false);
       setupGyro();
       window.addEventListener('resize', resize);
+      window.addEventListener('orientationchange', function () {
+        // Android WebView 旋转后 innerWidth 会延迟更新，多补两次
+        setTimeout(resize, 60); setTimeout(resize, 260); setTimeout(resize, 600);
+      });
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
       document.addEventListener('visibilitychange', function () { if (document.hidden) Audio.stopEngine(); });
       $('btnSound').addEventListener('click', toggleMute);
       $('btnStart').addEventListener('click', function () { Audio.ensure(); startRun(); });

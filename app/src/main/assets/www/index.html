@@ -9,6 +9,17 @@
 <link rel="stylesheet" href="css/style.css?v=2">
 </head>
 <body>
+<script>
+/* 2D 版是竖版跑道，固定竖屏（从 3D 横屏返回时自动转回） */
+(function () {
+  function lock() {
+    try { if (window.AndroidBridge && AndroidBridge.setOrientation) AndroidBridge.setOrientation('portrait'); } catch (e) { }
+  }
+  lock();
+  window.addEventListener('pageshow', lock);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) lock(); });
+})();
+</script>
 <div id="stage">
 
   <div id="wrap">

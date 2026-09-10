@@ -9,7 +9,8 @@
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { width:100%; height:100%; overflow:hidden; background:#0b0f1a; touch-action:none;
               font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; user-select:none; -webkit-user-select:none; }
-  #game { position:fixed; inset:0; display:block; }
+  /* ⚠️ 必须显式声明 100%：否则高 DPR 手机上 canvas 会按固有(物理)像素撑开，只显示画面一角 */
+  #game { position:fixed; inset:0; width:100%; height:100%; display:block; }
   /* —— HUD —— */
   #hud { position:fixed; inset:0; pointer-events:none; color:#fff; z-index:3; }
   .top { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between;
@@ -112,7 +113,7 @@
     <span>&#9000; 键盘：←→ / A D 转向 · ↑ 加速 · ↓ 刹车 · <b>C 视角 · G 陀螺仪</b></span><br>
     <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞车损失生命</span>
   </div>
-  <div class="ver">v4.0 · 弯道赛道 · 陀螺仪 · 真实贴图环境</div>
+  <div class="ver">v4.1 · 横屏 · 弯道赛道 · 陀螺仪 · 真实贴图环境</div>
 </div>
 
 <!-- 结束 -->
