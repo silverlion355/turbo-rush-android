@@ -10,11 +10,24 @@
 (function () {
   'use strict';
 
+  /* ⚠️ 最先检测 THREE：若 three.min.js 未加载成功，本文件后续每一行都会抛错，
+     必须在第一行就把原因暴露到屏幕诊断条上（而不是静默黑屏）。 */
+  if (typeof THREE === 'undefined') {
+    if (window.__diagLog) window.__diagLog('中止：THREE 未定义（three.min.js 未加载成功）');
+    return;
+  }
+  if (window.__diag) window.__diag.three = 'r' + THREE.REVISION;
+
   var SUPPORTED = (function () {
     try {
       var c = document.createElement('canvas');
-      return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')));
-    } catch (e) { return false; }
+      var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if (window.__diag) window.__diag.webgl = gl ? 'OK' : '不支持';
+      return !!(window.WebGLRenderingContext && gl);
+    } catch (e) {
+      if (window.__diag) window.__diag.webgl = '异常:' + e.message;
+      return false;
+    }
   })();
 
   /* ======== 配置 ======== */
@@ -37,24 +50,11 @@
 
   function $(id) { return document.getElementById(id); }
 
-  /* ======== 真机错误可视化（出现 JS 异常时屏幕底部显示红条，便于反馈） ======== */
+  /* ======== 真机错误可视化：统一写入屏幕底部诊断条 ======== */
   function showFatal(err) {
-    try {
-      var msg = (err && (err.message || err.reason || err)) + '';
-      if (!msg || msg === 'undefined') msg = 'unknown error';
-      var el = document.getElementById('fatalBox');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'fatalBox';
-        el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:rgba(150,20,20,.9);' +
-          'color:#fff;font:11px/1.5 monospace;padding:6px 8px;max-height:40%;overflow:auto;' +
-          'white-space:pre-wrap;word-break:break-all;';
-        document.body.appendChild(el);
-      }
-      if (el.textContent.indexOf(msg) < 0) {
-        el.textContent += (el.textContent ? '\n' : '') + '[ERR] ' + msg;
-      }
-    } catch (e) { }
+    var msg = (err && (err.message || err.reason || err)) + '';
+    if (!msg || msg === 'undefined') msg = 'unknown error';
+    if (window.__diagLog) window.__diagLog('[FATAL] ' + msg);
   }
   window.addEventListener('error', function (e) { if (e && e.message) showFatal(e.message); });
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -420,6 +420,18 @@
       var a = trackSamples[k].p, b = trackSamples[(k + 1) % N].p;
       totalLen += a.distanceTo(b);
     }
+    // 诊断：赛道关键数据（真机排查"看不到路"的核心依据）
+    if (window.__diagLog) {
+      var xs = [], zs = [];
+      for (var q = 0; q < TRACK_CTRL.length; q++) { xs.push(TRACK_CTRL[q][0]); zs.push(TRACK_CTRL[q][1]); }
+      var mn = function (arr) { return Math.min.apply(null, arr); };
+      var mx = function (arr) { return Math.max.apply(null, arr); };
+      var p0 = trackSamples[0].p;
+      window.__diagLog('赛道: 控制点' + TRACK_CTRL.length +
+        ' x[' + mn(xs) + ',' + mx(xs) + '] z[' + mn(zs) + ',' + mx(zs) + ']' +
+        ' 周长' + totalLen.toFixed(0) + 'm' +
+        ' 起点(' + p0.x.toFixed(0) + ',' + p0.z.toFixed(0) + ')');
+    }
   }
 
   function sampleAtS(s) {
@@ -435,6 +447,28 @@
     return { pos: pos, yaw: yaw, right: right, tan: b.tan.clone() };
   }
 
+  /* ======== WebGL 渲染器：多级降级创建 ========
+     部分 Android WebView / 老 GPU 对 powerPreference:'high-performance'、
+     antialias 支持不佳，会直接创建失败 → 表现为整屏黑。逐级退回最保守配置。 */
+  function createRenderer() {
+    var opts = [
+      { canvas: canvas, antialias: true, powerPreference: 'high-performance' },
+      { canvas: canvas, antialias: true },
+      { canvas: canvas, antialias: false },
+      { canvas: canvas, antialias: false, precision: 'mediump' }
+    ];
+    for (var i = 0; i < opts.length; i++) {
+      try {
+        var r = new THREE.WebGLRenderer(opts[i]);
+        if (window.__diagLog && i > 0) window.__diagLog('渲染器已降级至配置 #' + i);
+        return r;
+      } catch (e) {
+        if (window.__diagLog) window.__diagLog('渲染器配置 #' + i + ' 失败：' + (e && e.message));
+      }
+    }
+    return null;
+  }
+
   /* ======== 环境构建（纯程序化：几何 + 纯色，不依赖任何贴图） ======== */
   function buildScene() {
     scene = new THREE.Scene();
@@ -443,9 +477,10 @@
 
     camera = new THREE.PerspectiveCamera(CFG.FOV, W / H, 0.1, 2400);
     camFov = CFG.FOV;
-    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer = createRenderer();
+    if (!renderer) throw new Error('WebGLRenderer 创建失败（WebGL 上下文不可用）');
     renderer.setPixelRatio(Math.min(dpr, 2));
-    renderer.setSize(W, H, false);
+    renderer.setSize(W, H);
     initCarMats();
 
     // 程序化环境反射（canvas 渐变，无外部图片；让车漆有光泽）
@@ -460,7 +495,12 @@
       var pmrem = new THREE.PMREMGenerator(renderer);
       var rt = pmrem.fromEquirectangular(envTex); scene.environment = rt.texture;
       envTex.dispose(); pmrem.dispose();
-    } catch (e) { /* 低端机忽略环境反射 */ }
+    } catch (e) {
+      scene.environment = null;   // 低端机忽略环境反射
+      if (window.__diagLog) window.__diagLog('环境反射不可用（已跳过）');
+    }
+    // PMREM 会切换 renderTarget，显式复位，避免个别驱动后续渲染到离屏缓冲 → 黑屏
+    try { renderer.setRenderTarget(null); } catch (e2) {}
 
     // 灯光
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -487,9 +527,10 @@
     scene.add(ground);
 
     // 远山：沿赛道外围环形分布的圆锥体（纯几何 + 纯色，无贴图）
+    var hideMtn = /[?&]hide=mtn\b/.test(location.search);   // 调试：排除远山
     var mtnA = new THREE.MeshLambertMaterial({ color: 0x8fb2cc, flatShading: true, fog: false });
     var mtnB = new THREE.MeshLambertMaterial({ color: 0xa9c5da, flatShading: true, fog: false });
-    for (var mi = 0; mi < 32; mi++) {
+    for (var mi = 0; !hideMtn && mi < 32; mi++) {
       var ang = (mi / 32) * Math.PI * 2 + (Math.random() - 0.5) * 0.12;
       var rad = 430 + Math.random() * 150;
       var hgt = 70 + Math.random() * 150;
@@ -540,16 +581,17 @@
         var a = trackSamples[i % N];
         var offIn = a.right.clone().multiplyScalar(side * half);
         var offOut = a.right.clone().multiplyScalar(side * (half + curbT));
-        var base = a.p.clone().add(offIn);
-        var top = a.p.clone().add(offIn);
-        base.y = 0; top.y = curbH;
+        var base = a.p.clone().add(offIn); base.y = 0;
+        var top = a.p.clone().add(offIn); top.y = curbH;
         var base2 = a.p.clone().add(offOut); base2.y = 0;
         var top2 = a.p.clone().add(offOut); top2.y = curbH;
-        var vi = i * 8;
+        var vi = i * 4;   // ⚠️ 修复：每采样点 4 顶点（旧代码 i*8 越界一倍，越界顶点退化为原点，
+                          //     产生从赛道连向原点的巨型畸形三角形，run 态相机被整面遮死 → 全屏灰）
         cPos.push(base.x, base.y, base.z, top.x, top.y, top.z, top2.x, top2.y, top2.z, base2.x, base2.y, base2.z);
-        // colors: alternating red / white
-        var c = (i % 4 < 2) ? [0xd44040] : [0xeaeaea];
-        cCol.push.apply(cCol, [c[0], c[0], c[0], c[0], c[0], c[0], c[0], c[0], c[0], c[0], c[0], c[0]]);
+        // 顶点色：红白相间（必须 0~1 浮点分量；旧代码把 0xd44040 整数当 float 推送 → 颜色溢出）
+        var isRed = (i % 4 < 2);
+        var cr = isRed ? 0.83 : 0.92, cg = isRed ? 0.25 : 0.92, cb = isRed ? 0.25 : 0.92;
+        cCol.push(cr, cg, cb, cr, cg, cb, cr, cg, cb, cr, cg, cb);
         cIdx.push(vi, vi + 1, vi + 2, vi, vi + 2, vi + 3);
       }
       curbGeo.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
@@ -622,20 +664,24 @@
 
   /* ======== 城市建筑群（沿路一侧） ======== */
   function buildCityBlocks() {
+    if (/[?&]hide=city\b/.test(location.search)) return;   // 调试：排除城市建筑
     var bm = makeMaterial(0x5b6b7e, { metal: 0.2, rough: 0.8 });
-    // 沿环路每 6 段布置一组
-    for (var i = 0; i < trackSamples.length; i += 6) {
+    /* ⚠️ 修复：旧版楼群贴着赛道布置（侧向 -22~58m、高 14~52m、每 6 采样点一组），
+       玩家在赛道上时视野被楼体完全填死（俯视验证：整屏灰蓝）。
+       现在楼群退到赛道外 60~170m 作远景天际线，不侵入行车视野。 */
+    for (var i = 0; i < trackSamples.length; i += 12) {
       var s = trackSamples[i];
       var cluster = new THREE.Group();
-      var n = 4 + ((Math.random() * 4) | 0);
+      var n = 2 + ((Math.random() * 3) | 0);
       for (var k = 0; k < n; k++) {
-        var w = 5 + Math.random() * 12;
-        var d = 5 + Math.random() * 12;
-        var h = 14 + Math.random() * 38;
+        var w = 8 + Math.random() * 16;
+        var d = 8 + Math.random() * 16;
+        var h = 10 + Math.random() * 30;
         var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bm);
-        var ox = (Math.random() - 0.5) * 80;
-        var oz = (Math.random() - 0.5) * 80;
-        var pos = s.p.clone().add(s.right.clone().multiplyScalar(ox + 18)).add(s.tan.clone().multiplyScalar(oz));
+        var side = (i % 24 === 0) ? 1 : -1;                 // 左右交替
+        var ox = side * (60 + Math.random() * 110);         // 侧向 60~170m
+        var oz = (Math.random() - 0.5) * 60;
+        var pos = s.p.clone().add(s.right.clone().multiplyScalar(ox)).add(s.tan.clone().multiplyScalar(oz));
         pos.y = h / 2;
         m.position.copy(pos);
         m.rotation.y = Math.random() * Math.PI;
@@ -753,6 +799,14 @@
     if (state !== 'run') return;
     var ratio = clamp(speed / CFG.MAX_SPEED, 0, 1.4);
     var samp = sampleAtS(playerS); // playerS global
+    // 调试：?debugcam=top → 玩家上空 60m 俯视（排查起点周围几何）
+    if (!debugCamTop) debugCamTop = /[?&]debugcam=top\b/.test(location.search);
+    if (debugCamTop) {
+      var pT = playerGrp.position;
+      camera.position.set(pT.x + 0.01, 60, pT.z);
+      camera.lookAt(pT.x, 0, pT.z);
+      return;
+    }
     if (viewMode === COCKPIT) {
       // 座舱：以车身局部坐标对齐
       playerGrp.updateMatrixWorld();
@@ -801,6 +855,7 @@
 
   /* ======== 玩家状态 ======== */
   var playerS = 0; // 沿轨道的进度（米）
+  var debugCamTop = false;
   function updatePlayer(dt) {
     // 油门
     if (input.kUp) setThrottle(Math.max(throttle, 1));
@@ -1037,11 +1092,32 @@
   }
 
   /* ======== 渲染循环 ======== */
+  var __fpsN = 0, __fpsT = 0, __rendered = 0;
   function frame(ts) {
     requestAnimationFrame(frame);
     var dt = Math.min((ts - lastTm) / 1000 || 0.016, 0.05);
     lastTm = ts;
-    if (!scene) { return; } // 场景还没建好
+    ensureSize();                 // 每帧核对画布尺寸（首帧视口为 0 / 旋转后失配）
+    if (!scene) { return; }       // 场景还没建好
+    // 诊断：帧率与渲染次数（每 1s 刷新一次 DOM）
+    if (window.__diag) {
+      __fpsN++;
+      if (!__fpsT) __fpsT = ts;
+      else if (ts - __fpsT >= 1000) {
+        window.__diag.fps = Math.round(__fpsN * 1000 / (ts - __fpsT));
+        window.__diag.objs = scene.children.length;
+        try {
+          var cp = camera.position, pp = playerGrp.position;
+          var dir = camera.getWorldDirection(new THREE.Vector3());
+          window.__diag.extra = 'cam(' + cp.x.toFixed(0) + ',' + cp.y.toFixed(1) + ',' + cp.z.toFixed(0) + ')' +
+            ' P(' + pp.x.toFixed(0) + ',' + pp.z.toFixed(0) + ')' +
+            ' dir(' + dir.x.toFixed(2) + ',' + dir.y.toFixed(2) + ',' + dir.z.toFixed(2) + ')' +
+            ' S=' + playerS.toFixed(0) + ' v=' + speed.toFixed(0) + ' L=' + totalLen.toFixed(0) + ' ' + state;
+        } catch (eD) {}
+        __fpsN = 0; __fpsT = ts;
+        if (window.__diagRefresh) window.__diagRefresh();
+      }
+    }
     if (state === 'menu' || state === 'over') {
       var idleA = time * 0.4;
       var target = { x: 0, y: 0.7, z: -2 };
@@ -1058,11 +1134,22 @@
       camera.position.set(Math.sin(ca) * rad, cy + Math.sin(time * 0.6) * 0.4, -2 + Math.cos(ca) * rad);
       camera.lookAt(0, 1, -3);
       gemsArr.forEach(function (g) { g.rotation.y += dt * 2.2; });
-      try { renderer.render(scene, camera); } catch (e) { showFatal(e); }
+      render();
     } else {
       update(dt);
-      try { renderer.render(scene, camera); } catch (e) { showFatal(e); }
+      render();
     }
+  }
+
+  /* 统一渲染出口：异常不吞掉，写到屏幕诊断条 */
+  function render() {
+    try {
+      renderer.render(scene, camera);
+      if (!__rendered) {
+        __rendered = 1;
+        if (window.__diagLog) window.__diagLog('首帧渲染成功');
+      }
+    } catch (e) { showFatal(e); }
   }
 
   /* ======== UI ======== */
@@ -1094,29 +1181,46 @@
   }
 
   /* ======== 初始化 ======== */
+  /* 测量视口：WebView 首帧时 innerWidth/innerHeight 可能为 0，逐级回退 */
+  function measure() {
+    var de = document.documentElement, bd = document.body;
+    return {
+      w: window.innerWidth || (de && de.clientWidth) || (bd && bd.clientWidth) || 0,
+      h: window.innerHeight || (de && de.clientHeight) || (bd && bd.clientHeight) || 0
+    };
+  }
+
   function resize() {
-    var w = window.innerWidth || document.documentElement.clientWidth || 1;
-    var h = window.innerHeight || document.documentElement.clientHeight || 1;
-    W = w; H = h; dpr = window.devicePixelRatio || 1;
-    if (!renderer) return;
+    var m = measure();
+    if (m.w > 0) W = m.w;
+    if (m.h > 0) H = m.h;
+    dpr = window.devicePixelRatio || 1;
+    if (window.__diag) window.__diag.size = W + 'x' + H + '@' + dpr;
+    if (!renderer || !W || !H) return;
     renderer.setPixelRatio(Math.min(dpr, 2));
-    // ⚠️ 关键修复：旧代码是 setSize(W, H, false)（不写 canvas 的 CSS 尺寸），
-    // 而 #game 又没声明 width/height。高 DPR 手机上 canvas 的“固有尺寸”变成
-    // 视口×2/×3，position:fixed 下按固有尺寸显示 → 屏幕只能看到画面左上角一小块
-    // （表现就是“看不到路 / 看不到车 / 看不到环境”）。
-    // 现在同步样式 + CSS 100%，让画布严格等于视口。
+    // 同步写 canvas 的 CSS 尺寸，并配合 CSS 100%，让画布严格等于视口
+    // （旧代码 setSize(W,H,false) 不写样式，高 DPR 下 canvas 按物理像素撑开 → 只看到一角）
     renderer.setSize(W, H);
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     if (camera) { camera.aspect = W / H; camera.updateProjectionMatrix(); }
   }
 
+  /* 每帧自愈：WebView 首帧视口可能为 0、旋转后尺寸也可能失配，
+     单靠 resize 事件不足以保证，故每帧核对一次（开销极低）。 */
+  function ensureSize() {
+    var m = measure();
+    if (!m.w || !m.h) return;
+    if (!W || !H || m.w !== W || m.h !== H || !renderer) resize();
+  }
+
   function boot() {
     resize();
     if (!SUPPORTED) {
+      if (window.__diagLog) window.__diagLog('WebGL 不可用 → 交给兼容模式渲染');
       var box = document.createElement('div');
       box.className = 'no-webgl';
-      box.innerHTML = '当前环境不支持 WebGL，无法运行 3D 版。<br>请使用 Chrome / Edge / 现代 Android WebView 打开。';
+      box.innerHTML = '当前环境不支持 WebGL，已切换为兼容模式（简化画面）。';
       menu.appendChild(box);
       return;
     }
@@ -1152,8 +1256,13 @@
       if (q && q[1] === 'cockpit') { viewMode = COCKPIT; setViewUI(); }
       if (/[?&]autostart=1\b/.test(location.search)) { setTimeout(function () { Audio.ensure(); startRun(); }, 60); }
       lastTm = performance.now();
+      window.__booted = true;
+      if (window.__diagLog) window.__diagLog('启动完成，进入渲染循环');
       requestAnimationFrame(frame);
-    } catch (err) { showFatal(err); }
+    } catch (err) {
+      showFatal(err);
+      if (window.__diagLog) window.__diagLog('启动异常：' + ((err && err.message) || err));
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

@@ -4,7 +4,58 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b0f1a">
-<title>极速狂飙 3D · Turbo Rush 3D Complete</title>
+<title>极速狂飙 3D · Turbo Rush 3D</title>
+
+<!-- ============================================================
+     启动引导（必须最先执行，不依赖 three.min.js / main.js）
+       1. 立即锁定横屏 —— WebView 注入桥可能晚于页面脚本，故多重重试
+       2. 全局错误捕获 → 屏幕底部诊断条（真机排查的唯一可见通道）
+       3. 诊断信息：THREE 版本 / WebGL / 视口 / 帧率
+     ============================================================ -->
+<script>
+window.__diag = { msgs: [], three: '未加载', webgl: '检测中', size: '-', fps: 0, objs: 0 };
+window.__booted = false;
+
+window.__diagText = function () {
+  var d = window.__diag;
+  var s = 'THREE:' + d.three + ' | WebGL:' + d.webgl + ' | ' + d.size + ' | ' + d.fps + 'fps | obj:' + d.objs;
+  if (d.extra) s += '\n' + d.extra;
+  if (d.msgs.length) s += '\n' + d.msgs.slice(-3).join('\n');
+  return s;
+};
+window.__diagRefresh = function () {
+  try { var el = document.getElementById('diag'); if (el) el.textContent = window.__diagText(); } catch (e) {}
+};
+window.__diagLog = function (m) {
+  try {
+    var s = String(m);
+    if (window.__diag.msgs.indexOf(s) < 0) window.__diag.msgs.push(s);
+    var el = document.getElementById('diag');
+    if (el) { el.style.display = 'block'; el.textContent = window.__diagText(); }
+  } catch (e) {}
+};
+
+/* —— 横屏锁定：立即 + 轮询重试 + pageshow —— */
+function __lockLandscape() {
+  try {
+    if (window.AndroidBridge && AndroidBridge.setOrientation) AndroidBridge.setOrientation('landscape');
+  } catch (e) {}
+}
+__lockLandscape();
+var __ln = 0;
+var __li = setInterval(function () { __lockLandscape(); if (++__ln >= 16) clearInterval(__li); }, 250);
+window.addEventListener('pageshow', __lockLandscape);
+
+/* —— 全局错误捕获（放在所有脚本之前，确保能抓到启动期异常）—— */
+window.onerror = function (msg, src, line) {
+  window.__diagLog('[ERR] ' + msg + ' @' + String(src || '').split('/').pop() + ':' + line);
+  return false;
+};
+window.addEventListener('unhandledrejection', function (e) {
+  window.__diagLog('[REJ] ' + ((e.reason && e.reason.message) || e.reason));
+});
+</script>
+
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { width:100%; height:100%; overflow:hidden; background:#0b0f1a; touch-action:none;
@@ -14,40 +65,43 @@
   /* —— HUD —— */
   #hud { position:fixed; inset:0; pointer-events:none; color:#fff; z-index:3; }
   .top { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between;
-         align-items:flex-start; padding:12px 14px; }
+         align-items:flex-start; padding:10px 12px;
+         padding-left:calc(12px + env(safe-area-inset-left)); padding-right:calc(12px + env(safe-area-inset-right)); }
   .score-box { background:rgba(8,12,24,.55); border:1px solid rgba(255,255,255,.14); border-radius:14px;
-               padding:6px 13px; backdrop-filter:blur(6px); text-align:center; }
+               padding:5px 12px; backdrop-filter:blur(6px); text-align:center; }
   .score-box .label { font-size:10px; letter-spacing:2px; opacity:.65; }
-  .score-box .value { font-size:21px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .score-box .value { font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
   #score { color:#ffd23f; }
   #distVal { color:#7fd7ff; }
-  #btnSound { position:absolute; right:14px; top:64px; pointer-events:auto; background:rgba(8,12,24,.5);
-              border:1px solid rgba(255,255,255,.15); color:#fff; width:38px; height:38px; border-radius:12px;
-              font-size:17px; cursor:pointer; }
-  #btnView { position:absolute; right:14px; top:110px; pointer-events:auto; background:rgba(8,12,24,.6);
-             border:1px solid rgba(255,255,255,.18); color:#cfe6ff; height:38px; padding:0 14px; border-radius:12px;
-             font-size:12.5px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
+  /* 功能按钮：默认竖排（竖屏），横屏时改横排 */
+  #btnSound, #btnView, #btnGyro { position:absolute; pointer-events:auto; height:34px; border-radius:11px;
+        font-size:12px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
+  #btnSound { right:12px; top:60px; background:rgba(8,12,24,.5); border:1px solid rgba(255,255,255,.15);
+              color:#fff; width:34px; font-size:16px; }
+  #btnView { right:12px; top:102px; background:rgba(8,12,24,.6); border:1px solid rgba(255,255,255,.18);
+             color:#cfe6ff; padding:0 12px; }
   #btnView.hidden { display:none; }
-  #btnGyro { position:absolute; right:14px; top:156px; pointer-events:auto; background:rgba(8,12,24,.6);
-             border:1px solid rgba(127,240,192,.35); color:#7ff0c0; height:38px; padding:0 14px; border-radius:12px;
-             font-size:12.5px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
-  #viewBadge { position:absolute; left:50%; top:12px; transform:translateX(-50%); background:rgba(8,12,24,.5);
-               border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:4px 14px; font-size:11px;
+  #btnGyro { right:12px; top:144px; background:rgba(8,12,24,.6); border:1px solid rgba(127,240,192,.35);
+             color:#7ff0c0; padding:0 12px; }
+  #viewBadge { position:absolute; left:50%; top:10px; transform:translateX(-50%); background:rgba(8,12,24,.5);
+               border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:3px 13px; font-size:11px;
                letter-spacing:2px; color:#9fd0ff; }
   /* —— 连击条 —— */
-  #combo { position:absolute; left:50%; top:52px; transform:translateX(-50%); text-align:center; pointer-events:none;
+  #combo { position:absolute; left:50%; top:48px; transform:translateX(-50%); text-align:center; pointer-events:none;
            opacity:0; transition:opacity .2s; }
-  #combo .cm { font-size:20px; font-weight:900; color:#ffd23f; text-shadow:0 0 14px rgba(255,200,60,.8); letter-spacing:1px; }
-  #combo .bar { width:150px; height:4px; border-radius:2px; background:rgba(255,255,255,.16); margin:4px auto 0; overflow:hidden; }
+  #combo .cm { font-size:19px; font-weight:900; color:#ffd23f; text-shadow:0 0 14px rgba(255,200,60,.8); letter-spacing:1px; }
+  #combo .bar { width:140px; height:4px; border-radius:2px; background:rgba(255,255,255,.16); margin:4px auto 0; overflow:hidden; }
   #combo .bar i { display:block; height:100%; width:100%; background:linear-gradient(90deg,#ffd23f,#ff7a2e); }
   /* —— 速度表 —— */
-  #speedBox { position:absolute; left:14px; bottom:14px; background:rgba(8,12,24,.55); border:1px solid rgba(255,255,255,.14);
-              border-radius:14px; padding:6px 13px; backdrop-filter:blur(6px); text-align:center; }
+  #speedBox { position:absolute; left:12px; bottom:34px; background:rgba(8,12,24,.55); border:1px solid rgba(255,255,255,.14);
+              border-radius:14px; padding:5px 12px; backdrop-filter:blur(6px); text-align:center;
+              left:calc(12px + env(safe-area-inset-left)); }
   #speedBox .label { font-size:10px; letter-spacing:2px; opacity:.65; }
-  #speedVal { font-size:23px; font-weight:800; color:#ffb35c; font-variant-numeric:tabular-nums; }
+  #speedVal { font-size:22px; font-weight:800; color:#ffb35c; font-variant-numeric:tabular-nums; }
   .unit { font-size:11px; opacity:.7; }
-  #lives { position:absolute; right:14px; bottom:14px; display:flex; gap:6px; filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
-  .heart { width:20px; height:20px; transform:rotate(45deg); border-radius:4px; background:linear-gradient(135deg,#ff5a6e,#ff2d55);
+  #lives { position:absolute; right:12px; bottom:34px; display:flex; gap:6px;
+           filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); right:calc(12px + env(safe-area-inset-right)); }
+  .heart { width:18px; height:18px; transform:rotate(45deg); border-radius:4px; background:linear-gradient(135deg,#ff5a6e,#ff2d55);
            box-shadow:0 0 8px rgba(255,45,85,.6); }
   .heart.off { background:#263040; box-shadow:none; }
   /* —— 飘分 —— */
@@ -61,26 +115,49 @@
            background:radial-gradient(ellipse at center, transparent 40%, rgba(255,40,60,.55) 100%); }
   /* —— 叠加层 —— */
   .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-             gap:16px; background:rgba(6,9,18,.35); z-index:10; text-align:center; padding:24px; }
+             gap:14px; background:rgba(6,9,18,.30); z-index:10; text-align:center; padding:18px; }
   .overlay.hidden { display:none; }
-  .logo-3d { font-size:40px; font-weight:900; letter-spacing:2px; line-height:1.15;
+  .logo-3d { font-size:38px; font-weight:900; letter-spacing:2px; line-height:1.1;
              background:linear-gradient(180deg,#fff 20%,#ffd23f 70%,#ff9d2e); -webkit-background-clip:text;
-             background-clip:text; color:transparent; text-shadow:0 0 30px rgba(255,180,60,.2); }
-  .sub { font-size:12px; color:#9fb0c8; letter-spacing:4px; }
+             background-clip:text; color:transparent; }
+  .sub { font-size:11px; color:#9fb0c8; letter-spacing:4px; }
   .badge { font-size:11px; color:#7ff0c0; border:1px solid rgba(127,240,192,.4); padding:3px 10px; border-radius:999px;
            background:rgba(127,240,192,.08); letter-spacing:1px; }
-  .btn { pointer-events:auto; cursor:pointer; border:none; border-radius:16px; padding:13px 42px; font-size:18px; font-weight:800;
+  .btn { pointer-events:auto; cursor:pointer; border:none; border-radius:16px; padding:12px 40px; font-size:17px; font-weight:800;
          letter-spacing:3px; color:#1a1204; background:linear-gradient(180deg,#ffd23f,#ff9d2e); box-shadow:0 6px 24px rgba(255,160,40,.35);
          transition:transform .08s; }
   .btn:active { transform:scale(.96); }
   .btn.ghost { background:rgba(255,255,255,.06); color:#cfe0f5; border:1px solid rgba(255,255,255,.18); box-shadow:none; }
-  .tips { font-size:11.5px; color:#7e8ba3; line-height:1.95; }
+  .tips { font-size:11px; color:#7e8ba3; line-height:1.8; }
   .tips b { color:#bcd; }
-  #overTitle { font-size:26px; font-weight:900; color:#ff5a6e; letter-spacing:2px; }
+  #overTitle { font-size:25px; font-weight:900; color:#ff5a6e; letter-spacing:2px; }
   #overStats { font-size:13px; color:#cbd6e6; line-height:2.1; }
   #overStats b { color:#ffd23f; font-size:17px; }
-  .no-webgl { color:#ff8a8a; font-size:14px; max-width:280px; line-height:1.8; }
-  .ver { position:absolute; bottom:18px; font-size:10px; color:#55627a; letter-spacing:1px; }
+  .no-webgl { color:#ff8a8a; font-size:13px; max-width:300px; line-height:1.8; }
+  .ver { position:absolute; bottom:30px; font-size:10px; color:#55627a; letter-spacing:1px; }
+
+  /* —— 诊断条（真机排查用；确认稳定后可移除）—— */
+  #diag { position:fixed; left:0; right:0; bottom:0; z-index:99999; display:block;
+          background:rgba(0,0,0,.78); color:#7ff0c0; font:10px/1.45 monospace;
+          padding:3px 8px calc(3px + env(safe-area-inset-bottom)); white-space:pre-wrap;
+          word-break:break-all; pointer-events:none; }
+
+  /* —— 横屏适配：屏幕高度小，压缩纵向、按钮横排 —— */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .overlay { gap:8px; padding:10px 16px; }
+    .logo-3d { font-size:27px; }
+    .sub { font-size:10px; letter-spacing:3px; }
+    .badge { font-size:10px; padding:2px 8px; }
+    .btn { padding:9px 32px; font-size:15px; }
+    .tips { font-size:10px; line-height:1.6; }
+    .ver { bottom:22px; font-size:9px; }
+    #btnSound, #btnView, #btnGyro { height:30px; font-size:11px; border-radius:9px; }
+    #btnSound { width:30px; font-size:14px; top:56px; }
+    #btnView { top:56px; right:50px; }
+    #btnGyro { top:56px; right:12px; }
+    #speedBox { bottom:28px; }
+    #lives { bottom:28px; }
+  }
 </style>
 </head>
 <body>
@@ -103,17 +180,17 @@
 
 <!-- 开始菜单 -->
 <div class="overlay" id="menu">
-  <div class="logo-3d">极速狂飙<span style="font-size:22px"> 3D</span></div>
-  <div class="sub">TURBO RUSH 3D · COMPLETE</div>
-  <div class="badge">实车级超跑 · 双视角</div>
+  <div class="logo-3d">极速狂飙<span style="font-size:20px"> 3D</span></div>
+  <div class="sub">TURBO RUSH 3D</div>
+  <div class="badge">横屏 · 弯道赛道 · 双视角</div>
   <button class="btn" id="btnStart">开 始</button>
   <div class="tips">
     <span>&#128241; 触屏：<b>上滑加速 · 下滑减速</b> · 左右拖动转向</span><br>
-    <span>&#128268; 设备姿态：点右上 <b>陀螺仪</b> 即可用倾斜机身调整视角</span><br>
-    <span>&#9000; 键盘：←→ / A D 转向 · ↑ 加速 · ↓ 刹车 · <b>C 视角 · G 陀螺仪</b></span><br>
+    <span>&#128268; 点右上 <b>陀螺仪</b> 可用机身倾斜调整视角</span><br>
+    <span>&#9000; 键盘：←→/A D 转向 · ↑加速 · ↓刹车 · <b>C 视角 · G 陀螺仪</b></span><br>
     <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞车损失生命</span>
   </div>
-  <div class="ver">v4.1 · 横屏 · 弯道赛道 · 陀螺仪 · 真实贴图环境</div>
+  <div class="ver">v5.0</div>
 </div>
 
 <!-- 结束 -->
@@ -126,7 +203,31 @@
   <button class="btn" id="btnAgain">再 来 一 局</button>
 </div>
 
+<!-- 诊断条 -->
+<div id="diag"></div>
+
 <script src="js/three.min.js"></script>
+<script>
+  if (typeof THREE === 'undefined') {
+    window.__diagLog('three.min.js 加载失败：THREE 未定义');
+  } else {
+    window.__diag.three = 'r' + THREE.REVISION;
+    window.__diagRefresh();
+  }
+</script>
 <script src="js/main.js"></script>
+<script src="js/fallback.js"></script>
+<script>
+  /* main.js 的 boot() 在 DOMContentLoaded 时才执行，故延后检查启动结果 */
+  function __checkBoot() {
+    if (!window.__booted) window.__diagLog('main.js 未完成启动（见上方错误）');
+    if (window.__diagRefresh) window.__diagRefresh();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(__checkBoot, 60); });
+  } else {
+    setTimeout(__checkBoot, 60);
+  }
+</script>
 </body>
 </html>
