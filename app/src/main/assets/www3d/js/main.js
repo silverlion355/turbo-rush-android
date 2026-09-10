@@ -36,6 +36,27 @@
   };
 
   function $(id) { return document.getElementById(id); }
+
+  /* ======== 真机错误可视化（出现 JS 异常时屏幕底部显示红条，便于反馈） ======== */
+  function showFatal(err) {
+    try {
+      var msg = (err && (err.message || err.reason || err)) + '';
+      if (!msg || msg === 'undefined') msg = 'unknown error';
+      var el = document.getElementById('fatalBox');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'fatalBox';
+        el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:rgba(150,20,20,.9);' +
+          'color:#fff;font:11px/1.5 monospace;padding:6px 8px;max-height:40%;overflow:auto;' +
+          'white-space:pre-wrap;word-break:break-all;';
+        document.body.appendChild(el);
+      }
+      if (el.textContent.indexOf(msg) < 0) {
+        el.textContent += (el.textContent ? '\n' : '') + '[ERR] ' + msg;
+      }
+    } catch (e) { }
+  }
+  window.addEventListener('error', function (e) { if (e && e.message) showFatal(e.message); });
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
   function lerp(a, b, t) { return a + (b - a) * t; }
   function sstep(t) { return t * t * (3 - 2 * t); }
@@ -101,8 +122,6 @@
   var gyroOn = false, gyroAvail = false, gyroTilt = new THREE.Vector2(0, 0);
   var trackSamples = [], totalLen = 0, trackCurve = null;
   var curSeg = { pos: new THREE.Vector3(), yaw: 0, right: new THREE.Vector3(1, 0, 0) };
-  var textures = {};
-  var TEX_BASE = 'textures/';
 
   /* ======== 输入 ======== */
   var input = { kLeft: 0, kRight: 0, kUp: 0, kDown: 0, drag: null, baseY: 0 };
@@ -416,84 +435,76 @@
     return { pos: pos, yaw: yaw, right: right, tan: b.tan.clone() };
   }
 
-  /* ======== 环境构建 ======== */
-  function buildScene(loaded) {
+  /* ======== 环境构建（纯程序化：几何 + 纯色，不依赖任何贴图） ======== */
+  function buildScene() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(CFG.FOG_COLOR);
+    scene.background = new THREE.Color(0xbfe0ff);
     scene.fog = new THREE.Fog(CFG.FOG_COLOR, CFG.FOG_NEAR, CFG.FOG_FAR);
 
-    camera = new THREE.PerspectiveCamera(CFG.FOV, W / H, 0.1, 1200);
+    camera = new THREE.PerspectiveCamera(CFG.FOV, W / H, 0.1, 2400);
     camFov = CFG.FOV;
     renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(dpr, 2));
     renderer.setSize(W, H, false);
     initCarMats();
 
-    // 程序化环境反射（让车漆有光泽）
+    // 程序化环境反射（canvas 渐变，无外部图片；让车漆有光泽）
     try {
       var cv = document.createElement('canvas'); cv.width = 64; cv.height = 32;
       var cx = cv.getContext('2d');
       var gr = cx.createLinearGradient(0, 0, 0, 32);
-      gr.addColorStop(0, '#b9d6ff'); gr.addColorStop(0.42, '#dcedff'); gr.addColorStop(0.5, '#f6f9fd'); gr.addColorStop(0.54, '#c8d9b2'); gr.addColorStop(0.75, '#57794b'); gr.addColorStop(1, '#33503a');
+      gr.addColorStop(0, '#b9d6ff'); gr.addColorStop(0.42, '#dcedff'); gr.addColorStop(0.5, '#f6f9fd');
+      gr.addColorStop(0.54, '#c8d9b2'); gr.addColorStop(0.75, '#57794b'); gr.addColorStop(1, '#33503a');
       cx.fillStyle = gr; cx.fillRect(0, 0, 64, 32);
-      var tex = new THREE.CanvasTexture(cv); tex.mapping = THREE.EquirectangularReflectionMapping;
+      var envTex = new THREE.CanvasTexture(cv); envTex.mapping = THREE.EquirectangularReflectionMapping;
       var pmrem = new THREE.PMREMGenerator(renderer);
-      var rt = pmrem.fromEquirectangular(tex); scene.environment = rt.texture; tex.dispose(); pmrem.dispose();
-    } catch (e) { }
+      var rt = pmrem.fromEquirectangular(envTex); scene.environment = rt.texture;
+      envTex.dispose(); pmrem.dispose();
+    } catch (e) { /* 低端机忽略环境反射 */ }
 
     // 灯光
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-    var sun = new THREE.DirectionalLight(0xfff2d8, 1.2); sun.position.set(80, 120, 40); scene.add(sun);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    var sun = new THREE.DirectionalLight(0xfff2d8, 1.15); sun.position.set(80, 120, 40); scene.add(sun);
     var fill = new THREE.DirectionalLight(0x9fc8ff, 0.35); fill.position.set(-60, 30, -50); scene.add(fill);
-    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x3a4a33, 0.5));
+    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x3a4a33, 0.55));
 
-    // 天空穹顶（贴 texSky.jpg）
-    if (loaded.texSky) {
-      var skyMat = new THREE.MeshBasicMaterial({ map: loaded.texSky, side: THREE.BackSide, fog: false, depthWrite: false });
-      var sky = new THREE.Mesh(new THREE.SphereGeometry(CFG.SKY_R, 32, 20), skyMat);
-      sky.position.y = -30;
-      scene.add(sky);
-    }
+    // 天空球（纯色 BackSide，最先绘制、不写/不测深度）
+    var sky = new THREE.Mesh(
+      new THREE.SphereGeometry(CFG.SKY_R, 24, 16),
+      new THREE.MeshBasicMaterial({ color: 0xbfe0ff, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false })
+    );
+    sky.position.y = -30;
+    sky.renderOrder = -1000;
+    scene.add(sky);
 
-    // 草地平面（贴 texGrass.jpg）
-    var grassTex = loaded.texGrass;
-    if (grassTex) { grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping; grassTex.repeat.set(80, 80); }
-    var grassMat = new THREE.MeshLambertMaterial({ map: grassTex, color: 0xffffff });
-    var ground = new THREE.Mesh(new THREE.PlaneGeometry(CFG.GROUND_R * 2, CFG.GROUND_R * 2), grassMat);
-    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.01;
+    // 草地（纯色大平面）
+    var ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(CFG.GROUND_R * 2, CFG.GROUND_R * 2),
+      new THREE.MeshLambertMaterial({ color: 0x6aa84f })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.02;
     scene.add(ground);
 
-    // 大海平面（贴 texSea.jpg），置于环形外侧；做成一个大圆盘裁剪
-    if (loaded.texSea) {
-      var seaTex = loaded.texSea; seaTex.wrapS = seaTex.wrapT = THREE.RepeatWrapping; seaTex.repeat.set(40, 40);
-      var seaMat = new THREE.MeshLambertMaterial({ map: seaTex, color: 0xc8e0f0 });
-      var sea = new THREE.Mesh(new THREE.CircleGeometry(CFG.GROUND_R, 64), seaMat);
-      sea.rotation.x = -Math.PI / 2; sea.position.y = -0.5; scene.add(sea);
-    }
-
-    // 远山 / 城市天际线背景墙（CylinderGeometry 内壁贴图）
-    if (loaded.texMountain) {
-      var mm = loaded.texMountain; mm.wrapS = THREE.RepeatWrapping; mm.repeat.set(1, 1);
-      var mtnMat = new THREE.MeshBasicMaterial({ map: mm, side: THREE.BackSide, fog: false, transparent: false });
-      // 远山环：覆盖 270° 至 360°~90°
-      var mtn = new THREE.Mesh(new THREE.CylinderGeometry(CFG.BACKDROP_R, CFG.BACKDROP_R, CFG.BACKDROP_H, 48, 1, true, Math.PI * 0.85, Math.PI * 1.05), mtnMat);
-      mtn.position.y = CFG.BACKDROP_H * 0.35;
+    // 远山：沿赛道外围环形分布的圆锥体（纯几何 + 纯色，无贴图）
+    var mtnA = new THREE.MeshLambertMaterial({ color: 0x8fb2cc, flatShading: true, fog: false });
+    var mtnB = new THREE.MeshLambertMaterial({ color: 0xa9c5da, flatShading: true, fog: false });
+    for (var mi = 0; mi < 32; mi++) {
+      var ang = (mi / 32) * Math.PI * 2 + (Math.random() - 0.5) * 0.12;
+      var rad = 430 + Math.random() * 150;
+      var hgt = 70 + Math.random() * 150;
+      var crad = 58 + Math.random() * 95;
+      var mtn = new THREE.Mesh(new THREE.ConeGeometry(crad, hgt, 5), (mi % 3 === 0) ? mtnB : mtnA);
+      mtn.position.set(Math.cos(ang) * rad, hgt * 0.5 - 8, Math.sin(ang) * rad);
+      mtn.rotation.y = Math.random() * 3;
       scene.add(mtn);
     }
-    if (loaded.texCity) {
-      var cm = loaded.texCity; cm.wrapS = THREE.RepeatWrapping; cm.repeat.set(1, 1);
-      var cityMat = new THREE.MeshBasicMaterial({ map: cm, side: THREE.BackSide, fog: false, transparent: false });
-      // 城市天际线：放在与山相反方向
-      var city = new THREE.Mesh(new THREE.CylinderGeometry(CFG.BACKDROP_R, CFG.BACKDROP_R, CFG.BACKDROP_H, 48, 1, true, -Math.PI * 0.20, Math.PI * 0.65), cityMat);
-      city.position.y = CFG.BACKDROP_H * 0.35;
-      scene.add(city);
-    }
 
-    buildRoad(loaded);
+    buildRoad();
   }
 
   /* ======== 道路路面 / 路缘 / 虚线 ======== */
-  function buildRoad(loaded) {
+  function buildRoad() {
     var N = trackSamples.length;
     var posArr = [], uvArr = [], normArr = [], idxArr = [];
     var half = CFG.ROAD_HALF;
@@ -515,8 +526,7 @@
     roadGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvArr, 2));
     roadGeo.setAttribute('normal', new THREE.Float32BufferAttribute(normArr, 3));
     roadGeo.setIndex(idxArr);
-    var roadMat = new THREE.MeshLambertMaterial({ map: loaded.texAsphalt || null, color: 0xffffff });
-    if (loaded.texAsphalt) { loaded.texAsphalt.wrapS = loaded.texAsphalt.wrapT = THREE.RepeatWrapping; loaded.texAsphalt.repeat.set(4, 220); }
+    var roadMat = new THREE.MeshLambertMaterial({ color: 0x4a4e57 });
     var road = new THREE.Mesh(roadGeo, roadMat);
     road.frustumCulled = false;
     scene.add(road);
@@ -1031,7 +1041,7 @@
     requestAnimationFrame(frame);
     var dt = Math.min((ts - lastTm) / 1000 || 0.016, 0.05);
     lastTm = ts;
-    if (!scene) { return; } // 场景还没建好（贴图加载中）
+    if (!scene) { return; } // 场景还没建好
     if (state === 'menu' || state === 'over') {
       var idleA = time * 0.4;
       var target = { x: 0, y: 0.7, z: -2 };
@@ -1048,10 +1058,10 @@
       camera.position.set(Math.sin(ca) * rad, cy + Math.sin(time * 0.6) * 0.4, -2 + Math.cos(ca) * rad);
       camera.lookAt(0, 1, -3);
       gemsArr.forEach(function (g) { g.rotation.y += dt * 2.2; });
-      renderer.render(scene, camera);
+      try { renderer.render(scene, camera); } catch (e) { showFatal(e); }
     } else {
       update(dt);
-      renderer.render(scene, camera);
+      try { renderer.render(scene, camera); } catch (e) { showFatal(e); }
     }
   }
 
@@ -1101,139 +1111,6 @@
     if (camera) { camera.aspect = W / H; camera.updateProjectionMatrix(); }
   }
 
-  function loadTex(name) {
-    return new Promise(function (resolve) {
-      new THREE.TextureLoader().load(TEX_BASE + name + '.jpg', function (t) {
-        t.colorSpace = THREE.SRGBColorSpace;
-        resolve(t);
-      }, undefined, function () { resolve(null); });
-    });
-  }
-
-  // 程序化兜底贴图（headless 或 file:// 加载失败时使用）
-  function procCanvas(w, h, draw) {
-    var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-    var c = cv.getContext('2d'); draw(c, w, h);
-    var t = new THREE.CanvasTexture(cv);
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  }
-  function procSky() {
-    return procCanvas(512, 256, function (c, w, h) {
-      var g = c.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#7fbfff'); g.addColorStop(0.55, '#c8e3f7'); g.addColorStop(0.85, '#f5e2c6'); g.addColorStop(1, '#cfa57e');
-      c.fillStyle = g; c.fillRect(0, 0, w, h);
-      // 云
-      c.fillStyle = 'rgba(255,255,255,0.7)';
-      for (var i = 0; i < 10; i++) {
-        var x = Math.random() * w, y = 20 + Math.random() * h * 0.5, r = 20 + Math.random() * 40;
-        c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
-      }
-    });
-  }
-  function procMountain() {
-    return procCanvas(1024, 512, function (c, w, h) {
-      // 天空渐变
-      var g = c.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#a4cdef'); g.addColorStop(0.4, '#dceaf5'); g.addColorStop(0.55, '#efe5d3');
-      c.fillStyle = g; c.fillRect(0, 0, w, h);
-      // 雪山
-      c.fillStyle = '#5b6f80';
-      c.beginPath(); c.moveTo(0, h);
-      var baseY = h * 0.65;
-      for (var x = 0; x <= w; x += 30) {
-        var peak = baseY - (Math.sin(x * 0.013) + Math.cos(x * 0.027)) * 80 - Math.random() * 30;
-        c.lineTo(x, peak);
-      }
-      c.lineTo(w, h); c.closePath(); c.fill();
-      // 雪盖
-      c.fillStyle = '#f4f6f8';
-      c.beginPath(); c.moveTo(0, h);
-      for (var x2 = 0; x2 <= w; x2 += 30) {
-        var peak2 = baseY - (Math.sin(x2 * 0.013) + Math.cos(x2 * 0.027)) * 80 - Math.random() * 30;
-        c.lineTo(x2, peak2 + 18);
-      }
-      c.lineTo(w, h); c.closePath(); c.fill();
-      // 森林带
-      c.fillStyle = '#2f5b3a';
-      c.fillRect(0, h * 0.78, w, h * 0.22);
-    });
-  }
-  function procCity() {
-    return procCanvas(1024, 512, function (c, w, h) {
-      var g = c.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#c79568'); g.addColorStop(0.5, '#e9c19a'); g.addColorStop(0.7, '#a89886');
-      c.fillStyle = g; c.fillRect(0, 0, w, h);
-      // 楼宇
-      for (var i = 0; i < 60; i++) {
-        var bw = 14 + Math.random() * 28;
-        var bh = 60 + Math.random() * 220;
-        var bx = i * (w / 60) + Math.random() * 4;
-        var by = h - bh;
-        var tone = 90 + (Math.random() * 60) | 0;
-        c.fillStyle = 'rgb(' + tone + ',' + (tone + 15) + ',' + (tone + 30) + ')';
-        c.fillRect(bx, by, bw, bh);
-        // 窗户
-        c.fillStyle = 'rgba(255,210,120,' + (0.5 + Math.random() * 0.5) + ')';
-        for (var wy = by + 6; wy < by + bh - 4; wy += 8) {
-          for (var wx = bx + 3; wx < bx + bw - 3; wx += 5) {
-            if (Math.random() < 0.55) c.fillRect(wx, wy, 2, 3);
-          }
-        }
-      }
-    });
-  }
-  function procSea() {
-    return procCanvas(512, 512, function (c, w, h) {
-      c.fillStyle = '#0e5892'; c.fillRect(0, 0, w, h);
-      c.fillStyle = 'rgba(255,255,255,0.18)';
-      for (var y = 0; y < h; y += 7) {
-        for (var x = 0; x < w; x += 18) {
-          var dx = (Math.sin((x + y) * 0.04) + 1) * 0.5;
-          c.fillRect(x + dx * 6, y, 10 + Math.random() * 8, 2);
-        }
-      }
-      // 高光
-      c.fillStyle = 'rgba(255,255,255,0.5)';
-      for (var k = 0; k < 30; k++) {
-        c.beginPath();
-        c.arc(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 0, Math.PI * 2); c.fill();
-      }
-    });
-  }
-  function procAsphalt() {
-    return procCanvas(256, 256, function (c, w, h) {
-      c.fillStyle = '#3b3e44'; c.fillRect(0, 0, w, h);
-      // 颗粒
-      for (var i = 0; i < 600; i++) {
-        var v = 40 + Math.random() * 60;
-        c.fillStyle = 'rgba(' + v + ',' + (v + 5) + ',' + (v + 12) + ',' + (0.4 + Math.random() * 0.4) + ')';
-        c.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2);
-      }
-      // 裂纹
-      c.strokeStyle = 'rgba(20,20,22,0.55)';
-      c.lineWidth = 0.6;
-      for (var j = 0; j < 6; j++) {
-        c.beginPath();
-        var x0 = Math.random() * w, y0 = Math.random() * h;
-        c.moveTo(x0, y0);
-        for (var s = 0; s < 6; s++) c.lineTo(x0 + (Math.random() - 0.5) * 40, y0 + (Math.random() - 0.5) * 40);
-        c.stroke();
-      }
-    });
-  }
-  function procGrass() {
-    return procCanvas(256, 256, function (c, w, h) {
-      var g = c.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w);
-      g.addColorStop(0, '#7fbb51'); g.addColorStop(1, '#3f6f2a');
-      c.fillStyle = g; c.fillRect(0, 0, w, h);
-      for (var i = 0; i < 800; i++) {
-        c.fillStyle = 'rgba(' + (40 + Math.random() * 80) + ',' + (90 + Math.random() * 80) + ',40,0.55)';
-        c.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random(), 2 + Math.random() * 3);
-      }
-    });
-  }
-
   function boot() {
     resize();
     if (!SUPPORTED) {
@@ -1243,21 +1120,9 @@
       menu.appendChild(box);
       return;
     }
-    Promise.all([
-      loadTex('tex_sky'), loadTex('tex_mountain'), loadTex('tex_city'),
-      loadTex('tex_sea'), loadTex('tex_asphalt'), loadTex('tex_grass')
-    ]).then(function (arr) {
-      var tex = arr.map(function (t, i) {
-        if (t) return t;
-        // 加载失败时的程序化兜底
-        return [procSky, procMountain, procCity, procSea, procAsphalt, procGrass][i]();
-      });
-      textures = {
-        texSky: tex[0], texMountain: tex[1], texCity: tex[2],
-        texSea: tex[3], texAsphalt: tex[4], texGrass: tex[5]
-      };
+    try {
       buildTrack();
-      buildScene(textures);
+      buildScene();
       buildCityBlocks();
       playerGrp = playerCar();
       scene.add(playerGrp);
@@ -1288,7 +1153,7 @@
       if (/[?&]autostart=1\b/.test(location.search)) { setTimeout(function () { Audio.ensure(); startRun(); }, 60); }
       lastTm = performance.now();
       requestAnimationFrame(frame);
-    });
+    } catch (err) { showFatal(err); }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
