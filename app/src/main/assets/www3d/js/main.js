@@ -523,7 +523,8 @@
       new THREE.MeshLambertMaterial({ color: 0x6aa84f })
     );
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.02;
+    ground.position.y = -0.1;   // ⚠️ v0.11.1：原 -0.02 与路面太近，远处低精度深度缓冲会
+                                //     z-fighting 串色（草地"渗"上路面），拉开到 -0.1
     scene.add(ground);
 
     // 远山：沿赛道外围环形分布的圆锥体（纯几何 + 纯色，无贴图）
@@ -560,7 +561,11 @@
     }
     for (var k = 0; k < N; k++) {
       var i0 = k * 2, i1 = i0 + 1, i2 = i0 + 2, i3 = i0 + 3;
-      idxArr.push(i0, i2, i1); idxArr.push(i1, i2, i3);
+      /* ⚠️ v0.11.1 修复：旧绕序 (i0,i2,i1)/(i1,i2,i3) 从上看是顺时针 →
+         几何正面朝下 → FrontSide 背面剔除把整条路面剔掉 →
+         露出下面的绿色草地（用户看到"公路是绿色的"）。
+         反转为 (i0,i1,i2)/(i1,i3,i2)，法线朝上、正面朝上。 */
+      idxArr.push(i0, i1, i2); idxArr.push(i1, i3, i2);
     }
     var roadGeo = new THREE.BufferGeometry();
     roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
@@ -573,6 +578,9 @@
     scene.add(road);
 
     // 路缘（左右各一条，红白相间色块）
+    // ⚠️ v0.11.1 修复：旧索引只连接了"同一采样点内部"的 4 个顶点（横截面碎片，
+    //    面朝行车方向），没有连接相邻采样点 → 路缘是一堆碎片不是连续条带。
+    //    现在改为连接 i 与 i+1 的顶面/外侧面/内侧面三个条带。
     [-1, 1].forEach(function (side) {
       var curbGeo = new THREE.BufferGeometry();
       var cPos = [], cCol = [], cIdx = [];
@@ -585,20 +593,29 @@
         var top = a.p.clone().add(offIn); top.y = curbH;
         var base2 = a.p.clone().add(offOut); base2.y = 0;
         var top2 = a.p.clone().add(offOut); top2.y = curbH;
-        var vi = i * 4;   // ⚠️ 修复：每采样点 4 顶点（旧代码 i*8 越界一倍，越界顶点退化为原点，
-                          //     产生从赛道连向原点的巨型畸形三角形，run 态相机被整面遮死 → 全屏灰）
+        var vi = i * 4;
         cPos.push(base.x, base.y, base.z, top.x, top.y, top.z, top2.x, top2.y, top2.z, base2.x, base2.y, base2.z);
-        // 顶点色：红白相间（必须 0~1 浮点分量；旧代码把 0xd44040 整数当 float 推送 → 颜色溢出）
+        // 顶点色：红白相间（必须 0~1 浮点分量）
         var isRed = (i % 4 < 2);
         var cr = isRed ? 0.83 : 0.92, cg = isRed ? 0.25 : 0.92, cb = isRed ? 0.25 : 0.92;
         cCol.push(cr, cg, cb, cr, cg, cb, cr, cg, cb, cr, cg, cb);
-        cIdx.push(vi, vi + 1, vi + 2, vi, vi + 2, vi + 3);
+      }
+      for (var k = 0; k < N; k++) {
+        var v0 = k * 4, v1 = v0 + 1, v2 = v0 + 2, v3 = v0 + 3;      // 采样点 k
+        var w0 = v0 + 4, w1 = w0 + 1, w2 = w0 + 2, w3 = w0 + 3;     // 采样点 k+1
+        // 顶面（法线朝上）
+        cIdx.push(v1, v2, w2); cIdx.push(v1, w2, w1);
+        // 外侧面（法线朝外）
+        cIdx.push(v3, w3, w2); cIdx.push(v3, w2, v2);
+        // 内侧面（法线朝路）
+        cIdx.push(v0, w0, w1); cIdx.push(v0, w1, v1);
       }
       curbGeo.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
       curbGeo.setAttribute('color', new THREE.Float32BufferAttribute(cCol, 3));
       curbGeo.setIndex(cIdx);
       curbGeo.computeVertexNormals();
-      var curbMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+      // DoubleSide：side=-1 时绕序镜像，双面渲染保证两个方向都可见且光照正确
+      var curbMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
       var curbMesh = new THREE.Mesh(curbGeo, curbMat);
       curbMesh.frustumCulled = false;
       scene.add(curbMesh);
@@ -1254,7 +1271,7 @@
       btnView.addEventListener('click', cycleView);
       var q = /[?&]view=(\w+)/.exec(location.search);
       if (q && q[1] === 'cockpit') { viewMode = COCKPIT; setViewUI(); }
-      if (/[?&]autostart=1\b/.test(location.search)) { setTimeout(function () { Audio.ensure(); startRun(); }, 60); }
+      if (/[?&]autostart=1\b/.test(location.search)) { Audio.ensure(); startRun(); }  // 同步启动（headless 截图验证用；60ms 定时器在 headless 会被节流）
       lastTm = performance.now();
       window.__booted = true;
       if (window.__diagLog) window.__diagLog('启动完成，进入渲染循环');
