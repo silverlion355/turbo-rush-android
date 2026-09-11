@@ -32,20 +32,21 @@
 
   /* ======== 配置 ======== */
   var CFG = {
-    ROAD_W: 11, ROAD_HALF: 5.5,
-    LANES: 4, LANE_W: 11 / 4,
+    ROAD_W: 14, ROAD_HALF: 7,          // v6.0：11m → 14m（双向四车道，更接近真实公路）
+    LANES: 4, LANE_W: 14 / 4,
     MAX_SPEED: 245, REVERSE_MAX: -50,
     ACCEL: 38, BRAKE_DECEL: 85, COAST_DECEL: 16, ROLL_DRAG: 0.12,
-    STEER_KBD: 520, STEER_TOUCH: 5.4, STEER_MAX_OFFSET: 4.9, STEER_RECOVER: 4.5,
-    FOV: 64, CAM_DIST: 8.0, CAM_H: 4.4, CAM_LOOK_Y: 1.0, CAM_LOOK_AHEAD: 22,
-    COCKPIT_OFFSET: new THREE.Vector3(0.34, 0.74, 0.52),
+    STEER_KBD: 520, STEER_TOUCH: 5.4, STEER_MAX_OFFSET: 5.8, STEER_RECOVER: 4.5,
+    STEER_RATE: 6.2,                    // v6.0：右侧滑动转向的最大横向速度 m/s
+    FOV: 64, CAM_DIST: 8.6, CAM_H: 4.6, CAM_LOOK_Y: 1.1, CAM_LOOK_AHEAD: 24,
+    COCKPIT_OFFSET: new THREE.Vector3(0.30, 0.98, 0.34),   // v6.0：0.74 → 0.98（抬到仪表台上方、挡风下沿之上，越过引擎盖看清路面）
     INVINCIBLE: 1.8, HIT_DROP: 0.55,
     GEM_SCORE: 60, GEM_COMBO_WIN: 1.8,
     TRACK_N: 600, LOOP_KM_H: 200,
-    FOG_NEAR: 90, FOG_FAR: 460, FOG_COLOR: 0xcfe4f0,
+    FOG_NEAR: 120, FOG_FAR: 640, FOG_COLOR: 0xcfe4f0,       // v6.0：远景更通透
     AI_SPEED_MIN: 0.42, AI_SPEED_MAX: 0.72,
     GYRO_YAW_RANGE: 0.55, GYRO_PITCH_RANGE: 0.30,
-    SKY_R: 800, GROUND_R: 900, BACKDROP_R: 760, BACKDROP_H: 320
+    SKY_R: 800, GROUND_R: 1100, BACKDROP_R: 760, BACKDROP_H: 320
   };
 
   function $(id) { return document.getElementById(id); }
@@ -105,17 +106,22 @@
 
   /* ======== DOM / 状态 ======== */
   var canvas = $('game'), renderer, scene, camera;
-  var uiScore = $('score'), uiDist = $('distVal'), uiSpeed = $('speedVal'), uiLives = $('lives'),
+  var uiScore = $('score'), uiGems = $('gemVal'), uiMile = $('mile'), uiLives = $('lives'),
       uiView = $('viewBadge'), btnView = $('btnView'), btnGyro = $('btnGyro'), menu = $('menu'), over = $('over'),
       uiFinalS = $('finalScore'), uiFinalD = $('finalDist'), uiFinalG = $('finalGems'),
-      uiCombo = $('combo'), uiComboTxt = $('comboTxt'), uiComboBar = $('comboBar'), elFlash = $('flash');
+      uiCombo = $('combo'), uiComboTxt = $('comboTxt'), uiComboBar = $('comboBar'), elFlash = $('flash'),
+      gaugeCv = $('gauge'), miniCv = $('mini'), pedGas = $('pedGas'), pedBrake = $('pedBrake');
+  var gaugeCtx = gaugeCv ? gaugeCv.getContext('2d') : null;
+  var miniCtx = miniCv ? miniCv.getContext('2d') : null;
+  var miniBox = null, hudT = 0;
   var W = 0, H = 0, dpr = 1;
   var state = 'menu';
   var time = 0, runT = 0, dist = 0, score = 0, gems = 0, lives = 3;
   var speed = 0, throttle = 0, lateral = 0, lateralVel = 0, carTilt = 0, steerVis = 0;
   var inv = 0, shake = 0, flash = 0, overT = 0;
-  var aiCars = [], gemsArr = [], trees = [], parts = [], dashInst = null, dashData = [], cityBlocks = [];
+  var aiCars = [], gemsArr = [], trees = [], bushes = [], rocks = [], parts = [], dashInst = null, dashData = [], cityBlocks = [];
   var playerGrp = null, seatCam = null, wheelParts = [], frontWheelGrps = [], wheelSpin = [];
+  var clouds = [];
   var comboN = 0, comboT = 0, pendingPop = [];
   var lastTm = 0, camFov = CFG.FOV, camLookYaw = 0, camLookPitch = 0;
   var CHASE = 0, COCKPIT = 1, viewMode = CHASE, viewBlend = 1;
@@ -123,31 +129,73 @@
   var trackSamples = [], totalLen = 0, trackCurve = null;
   var curSeg = { pos: new THREE.Vector3(), yaw: 0, right: new THREE.Vector3(1, 0, 0) };
 
-  /* ======== 输入 ======== */
-  var input = { kLeft: 0, kRight: 0, kUp: 0, kDown: 0, drag: null, baseY: 0 };
+  /* ======== 输入 ========
+     v6.0 控制方案：
+       · 左下「油门 / 刹车」踏板按钮（按住生效，支持触摸与鼠标）
+       · 屏幕右侧区域左右滑动 → 比例转向（相对起点的位移，越往右越右转）
+       · 键盘兜底：←→/A D 转向，↑ 油门，↓ 刹车
+     ==================================== */
+  var input = { kLeft: 0, kRight: 0, kUp: 0, kDown: 0, drag: null, gas: false, brake: false, swipeGas: false, swipeBrake: false };
+  var steerTouchId = null;   // 正在负责"转向滑动"的那根手指的 identifier
 
-  function setThrottle(t) { throttle = clamp(t, -1, 1); }
+  function bindPedal(el, key, cls) {
+    if (!el) return;
+    function on(e) { e.preventDefault(); input[key] = true; el.classList.add('on'); }
+    function off(e) { if (e) e.preventDefault(); input[key] = false; el.classList.remove('on'); }
+    el.addEventListener('touchstart', on, { passive: false });
+    el.addEventListener('touchend', off, { passive: false });
+    el.addEventListener('touchcancel', off, { passive: false });
+    el.addEventListener('mousedown', on);
+    el.addEventListener('mouseup', off);
+    el.addEventListener('mouseleave', off);
+  }
+  bindPedal(pedGas, 'gas');
+  bindPedal(pedBrake, 'brake');
+
+  /* ⚠️ v6.0 多点触控修复：
+     旧实现用 e.touches[0] 取"第一根手指"——若玩家先用左拇指按住油门、
+     再用右拇指滑动转向，touches[0] 仍是左拇指（在左侧踏板区），
+     于是转向起点的 clientX < 42% 直接 return → 转向失效；
+     且 endSteer 会把手按的油门一起清零 → 一松转向手就断油。
+     现在用 changedTouches[0]（本次真正按下的那根）+ identifier 绑定，
+     转向手势与踏板互不干扰。 */
   canvas.addEventListener('touchstart', function (e) {
     e.preventDefault();
-    var t = e.touches[0];
-    input.drag = { sx: t.clientX, sy: t.clientY, px: t.clientX, py: t.clientY, lx: 0 };
-    input.baseY = t.clientY;
-    setThrottle(0);
+    var t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+    if (!t) return;
+    // 左 42% 区域留给踏板/仪表盘，转向只认右侧滑动
+    if (t.clientX < W * 0.42) return;
+    if (steerTouchId !== null && steerTouchId !== t.identifier) return;  // 已有一根手指在转向
+    steerTouchId = t.identifier;
+    input.drag = { sx: t.clientX, sy: t.clientY, lx: 0 };
   }, { passive: false });
   canvas.addEventListener('touchmove', function (e) {
     e.preventDefault();
-    if (!input.drag || !e.touches.length) return;
-    var t = e.touches[0];
-    var dx = t.clientX - input.drag.px;
-    var dy = t.clientY - input.drag.py;
-    input.drag.px = t.clientX; input.drag.py = t.clientY;
-    input.drag.lx += dx;
-    // 油门：向上滑动（dy 负）为正油门，向下为刹车
-    var dyFromBase = (t.clientY - input.baseY);
-    setThrottle(-dyFromBase / 130);
+    if (!input.drag || steerTouchId === null) return;
+    var t = null;
+    for (var i = 0; i < e.touches.length; i++) if (e.touches[i].identifier === steerTouchId) t = e.touches[i];
+    if (!t) return;
+    // 相对起点位移 → 比例转向：滑动约 1/6 屏宽即打满
+    input.drag.lx = clamp((t.clientX - input.drag.sx) / Math.max(W * 0.16, 90), -1, 1);
+    // 顺手支持：右侧上滑加油 / 下滑刹车（保留旧习惯，与踏板等效、独立于踏板）
+    var dyFromBase = t.clientY - input.drag.sy;
+    if (Math.abs(dyFromBase) > 26) {
+      if (dyFromBase < 0) { input.swipeGas = true; input.swipeBrake = false; }
+      else { input.swipeBrake = true; input.swipeGas = false; }
+    }
   }, { passive: false });
-  canvas.addEventListener('touchend', function (e) { e.preventDefault(); input.drag = null; setThrottle(0); }, { passive: false });
-  canvas.addEventListener('touchcancel', function (e) { e.preventDefault(); input.drag = null; setThrottle(0); }, { passive: false });
+  // 只有"转向那根手指"抬起才结束转向；踏板手指抬起不应影响转向/油门
+  function endSteer(e) {
+    if (e && e.changedTouches && e.changedTouches.length) {
+      var isSteerEnd = false;
+      for (var i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === steerTouchId) isSteerEnd = true;
+      if (!isSteerEnd) return;
+    }
+    input.drag = null; steerTouchId = null;
+    input.swipeGas = false; input.swipeBrake = false;
+  }
+  canvas.addEventListener('touchend', endSteer, { passive: false });
+  canvas.addEventListener('touchcancel', endSteer, { passive: false });
 
   window.addEventListener('keydown', function (e) {
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') input.kLeft = 1;
@@ -206,13 +254,29 @@
 
   /* ======== 视角 ======== */
   function cycleView() { viewMode = 1 - viewMode; setViewUI(); }
+  var carHiddenByDebug = false, forceHideCar = false;
+  // 车身可见性统一入口：座舱视角（仅比赛中）/ 调试隐藏 时不可见；无敌闪烁在主循环里叠加
+  // 注意：菜单/结算界面仍显示车身（镜头绕车动画），所以座舱隐藏只在 state==='run' 时生效
+  function carVisible() { return !carHiddenByDebug && !(forceHideCar && state === 'run'); }
   function setViewUI() {
     uiView.textContent = viewMode === COCKPIT ? '驾驶舱视角' : '追尾视角';
     btnView.textContent = viewMode === COCKPIT ? '车后视角' : '车内视角';
+    var inCockpit = (viewMode === COCKPIT);
+    forceHideCar = inCockpit;
+    // v6.0：座舱视角整体隐藏本车（车身）。低多边形超跑的车身/机盖/翼子板体积较大，
+    // 相机放进座舱后这些面片会怼在镜头前把路面挡死（实测车身占屏 >45%）。
+    // 隐藏整车身 = 干净的第一人称"车前视角"，完全看清路面；HUD 已提供速度/踏板等座舱信息。
+    if (playerGrp) playerGrp.visible = carVisible();
+    // 同时隐藏玻璃（双保险：某些机型 visible=false 的父级下仍可能残留半透明面）
+    if (playerGrp && playerGrp.userData && playerGrp.userData.glass) {
+      playerGrp.userData.glass.forEach(function (m) { m.visible = !inCockpit; });
+    }
   }
   function setViewVisible(on) {
     btnView.classList.toggle('hidden', !on);
     uiView.style.display = on ? '' : 'none';
+    // 菜单/结算时给 #hud 去掉 playing → CSS 隐藏仪表盘/踏板/路线图等（首屏更干净）
+    var hudEl = $('hud'); if (hudEl) hudEl.classList.toggle('playing', !!on);
     if (on) setViewUI();
   }
 
@@ -324,6 +388,10 @@
       }
     });
     var lip = B(1.6, 0.045, 0.3, 0, 0.9, 2.06, mBodyD); lip.rotation.x = -0.1; g.add(lip);
+    // 记录玻璃件：座舱视角时隐藏本车玻璃，避免视线被半透明车窗糊住
+    g.userData.glass = [winFront, winRoof, winRear].concat(
+      g.children.filter(function (ch) { return ch.material === M_GLASS; })
+    );
     [-1, 1].forEach(function (s) {
       g.add(B(0.02, 0.03, 0.12, s * 0.98, 0.82, -0.95, M_DARK));
       g.add(B(0.2, 0.09, 0.1, s * 1.06, 0.86, -0.98, mBody));
@@ -394,8 +462,13 @@
     [-130,  220],
     [-280,   60],
     [-220, -150],
-    [-100, -290],
-    [  0,  -260]  // 闭合
+    [-100, -290]
+    /* ⚠️ v0.13.0 修复：此处曾多写一个 [0,-260] 作为"闭合点"，但 closed=true
+       已经自动首尾相连 → 控制点重复 + 闭合 = 起点处出现退化段，
+       CatmullRom 曲线在起点 (-0.4,-260) 自我重叠（自交），
+       两段路面共面 z-fighting → 起点处出现一块"发亮的矩形"。
+       实测：含重复点时最小自距 0.02m（相距 190m 的两段重合）；
+       去掉重复点后最小自距 0.58m（正常）。故删除重复点。 */
   ];
 
   function buildTrack() {
@@ -508,44 +581,209 @@
     var fill = new THREE.DirectionalLight(0x9fc8ff, 0.35); fill.position.set(-60, 30, -50); scene.add(fill);
     scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x3a4a33, 0.55));
 
-    // 天空球（纯色 BackSide，最先绘制、不写/不测深度）
+    /* —— v6.0 天空：渐变贴图天空球（纯色 → 有层次的渐变） —— */
+    var skyCv = document.createElement('canvas'); skyCv.width = 8; skyCv.height = 256;
+    var sx = skyCv.getContext('2d');
+    var sg = sx.createLinearGradient(0, 0, 0, 256);
+    sg.addColorStop(0, '#2b6fc4'); sg.addColorStop(0.32, '#5fa4e2');
+    sg.addColorStop(0.60, '#a9d3f2'); sg.addColorStop(0.80, '#dcecf9'); sg.addColorStop(1, '#e9f3f8');
+    sx.fillStyle = sg; sx.fillRect(0, 0, 8, 256);
+    var skyTex = new THREE.CanvasTexture(skyCv);
     var sky = new THREE.Mesh(
       new THREE.SphereGeometry(CFG.SKY_R, 24, 16),
-      new THREE.MeshBasicMaterial({ color: 0xbfe0ff, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false })
+      new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false })
     );
     sky.position.y = -30;
     sky.renderOrder = -1000;
     scene.add(sky);
 
-    // 草地（纯色大平面）
+    /* —— v6.0 太阳：径向渐变光晕 Sprite（与主平行光同方向） —— */
+    try {
+      var sunCv = document.createElement('canvas'); sunCv.width = sunCv.height = 128;
+      var ux = sunCv.getContext('2d');
+      var rg = ux.createRadialGradient(64, 64, 2, 64, 64, 64);
+      rg.addColorStop(0, 'rgba(255,255,245,1)'); rg.addColorStop(0.16, 'rgba(255,247,214,.95)');
+      rg.addColorStop(0.40, 'rgba(255,230,168,.34)'); rg.addColorStop(1, 'rgba(255,222,150,0)');
+      ux.fillStyle = rg; ux.beginPath(); ux.arc(64, 64, 64, 0, 6.284); ux.fill();
+      var sunSpr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(sunCv), fog: false, depthWrite: false, transparent: true
+      }));
+      sunSpr.scale.set(210, 210, 1);
+      sunSpr.position.copy(new THREE.Vector3(80, 120, 40).normalize().multiplyScalar(CFG.SKY_R * 0.88));
+      scene.add(sunSpr);
+    } catch (eSun) { /* 忽略 */ }
+
+    /* —— v6.0 云层：柔和云朵 Sprite 缓慢漂移 —— */
+    try {
+      var clCv = document.createElement('canvas'); clCv.width = 256; clCv.height = 128;
+      var lx = clCv.getContext('2d');
+      for (var ci2 = 0; ci2 < 30; ci2++) {
+        var cx2 = 44 + Math.random() * 168, cy2 = 54 + Math.random() * 42, rr2 = 14 + Math.random() * 32;
+        var cg2 = lx.createRadialGradient(cx2, cy2, 0, cx2, cy2, rr2);
+        cg2.addColorStop(0, 'rgba(255,255,255,.9)'); cg2.addColorStop(1, 'rgba(255,255,255,0)');
+        lx.fillStyle = cg2; lx.beginPath(); lx.arc(cx2, cy2, rr2, 0, 6.284); lx.fill();
+      }
+      var clTex = new THREE.CanvasTexture(clCv);
+      for (var ci3 = 0; ci3 < 14; ci3++) {
+        var spr = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: clTex, fog: false, depthWrite: false, transparent: true, opacity: 0.75 + Math.random() * 0.2
+        }));
+        var ang2 = Math.random() * 6.283, rad2 = 150 + Math.random() * 520;
+        spr.position.set(Math.cos(ang2) * rad2, 120 + Math.random() * 120, Math.sin(ang2) * rad2);
+        var sc = 150 + Math.random() * 240;
+        spr.scale.set(sc, sc * 0.48, 1);
+        scene.add(spr); clouds.push(spr);
+      }
+    } catch (eCl) { /* 忽略 */ }
+
+    /* —— v6.0 草地：程序化草皮贴图（替代纯色平面） —— */
+    var grCv = document.createElement('canvas'); grCv.width = grCv.height = 128;
+    var gx = grCv.getContext('2d');
+    gx.fillStyle = '#5f9d47'; gx.fillRect(0, 0, 128, 128);
+    for (var gi = 0; gi < 3000; gi++) {
+      var gv = Math.random();
+      gx.fillStyle = gv < 0.45 ? 'rgba(74,128,56,.45)' : (gv < 0.78 ? 'rgba(112,172,82,.45)' : 'rgba(150,196,104,.32)');
+      gx.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 2, 1 + Math.random() * 3);
+    }
+    var grTex = new THREE.CanvasTexture(grCv);
+    grTex.wrapS = grTex.wrapT = THREE.RepeatWrapping;
+    grTex.repeat.set(140, 140);
     var ground = new THREE.Mesh(
       new THREE.PlaneGeometry(CFG.GROUND_R * 2, CFG.GROUND_R * 2),
-      new THREE.MeshLambertMaterial({ color: 0x6aa84f })
+      new THREE.MeshLambertMaterial({ color: 0xffffff, map: grTex })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.1;   // ⚠️ v0.11.1：原 -0.02 与路面太近，远处低精度深度缓冲会
                                 //     z-fighting 串色（草地"渗"上路面），拉开到 -0.1
     scene.add(ground);
 
-    // 远山：沿赛道外围环形分布的圆锥体（纯几何 + 纯色，无贴图）
+    /* —— v6.0 湖面：赛道环内的水面（增加景深与色彩层次） —— */
+    try {
+      var lake = new THREE.Mesh(new THREE.CircleGeometry(158, 44),
+        new THREE.MeshLambertMaterial({ color: 0x2f74ad }));
+      lake.rotation.x = -Math.PI / 2;
+      lake.position.set(-18, -0.05, -12);
+      scene.add(lake);
+      // 湖岸浅滩
+      var shore = new THREE.Mesh(new THREE.RingGeometry(158, 176, 44),
+        new THREE.MeshLambertMaterial({ color: 0xc9bfa0 }));
+      shore.rotation.x = -Math.PI / 2;
+      shore.position.set(-18, -0.055, -12);
+      scene.add(shore);
+    } catch (eLk) { /* 忽略 */ }
+
+    /* —— v6.0 远山：三层景深（近森林丘陵 / 中青蓝山 / 远淡蓝剪影） —— */
     var hideMtn = /[?&]hide=mtn\b/.test(location.search);   // 调试：排除远山
-    var mtnA = new THREE.MeshLambertMaterial({ color: 0x8fb2cc, flatShading: true, fog: false });
-    var mtnB = new THREE.MeshLambertMaterial({ color: 0xa9c5da, flatShading: true, fog: false });
-    for (var mi = 0; !hideMtn && mi < 32; mi++) {
-      var ang = (mi / 32) * Math.PI * 2 + (Math.random() - 0.5) * 0.12;
-      var rad = 430 + Math.random() * 150;
-      var hgt = 70 + Math.random() * 150;
-      var crad = 58 + Math.random() * 95;
-      var mtn = new THREE.Mesh(new THREE.ConeGeometry(crad, hgt, 5), (mi % 3 === 0) ? mtnB : mtnA);
-      mtn.position.set(Math.cos(ang) * rad, hgt * 0.5 - 8, Math.sin(ang) * rad);
-      mtn.rotation.y = Math.random() * 3;
-      scene.add(mtn);
+    var mtnRings = [
+      { r0: 400, r1: 480, h0: 55, h1: 125, n: 26, cr0: 38, cr1: 62, cols: [0x5d7f62, 0x6f9470] },
+      { r0: 540, r1: 720, h0: 95, h1: 235, n: 24, cr0: 68, cr1: 118, cols: [0x7d9db6, 0x92afc5] },
+      { r0: 800, r1: 1020, h0: 140, h1: 320, n: 20, cr0: 120, cr1: 185, cols: [0xa9c5db, 0xbfd6e7] }
+    ];
+    for (var ri = 0; !hideMtn && ri < mtnRings.length; ri++) {
+      var ring = mtnRings[ri];
+      var mA = new THREE.MeshLambertMaterial({ color: ring.cols[0], flatShading: true, fog: false });
+      var mB = new THREE.MeshLambertMaterial({ color: ring.cols[1], flatShading: true, fog: false });
+      for (var mi = 0; mi < ring.n; mi++) {
+        var ang = (mi / ring.n) * Math.PI * 2 + (Math.random() - 0.5) * 0.22;
+        var rad = ring.r0 + Math.random() * (ring.r1 - ring.r0);
+        var hgt = ring.h0 + Math.random() * (ring.h1 - ring.h0);
+        var crad = ring.cr0 + Math.random() * (ring.cr1 - ring.cr0);
+        var mtn = new THREE.Mesh(new THREE.ConeGeometry(crad, hgt, 5), (mi % 3 === 0) ? mB : mA);
+        mtn.position.set(Math.cos(ang) * rad, hgt * 0.5 - 8, Math.sin(ang) * rad);
+        mtn.rotation.y = Math.random() * 3;
+        scene.add(mtn);
+      }
     }
 
     buildRoad();
   }
 
-  /* ======== 道路路面 / 路缘 / 虚线 ======== */
+  /* ======== 程序化沥青贴图（CanvasTexture 同步生成，不依赖外部图片）
+     u 轴 = 路幅方向（左边缘 → 右边缘），v 轴 = 沿路 8m
+     烘焙内容：沥青噪点 / 轮迹磨损 / 两侧白色边线 / 中央双黄实线 / 车道白色虚线
+     ============================================================ */
+  /* v6.0：程序化沥青贴图（公路质感的核心）
+     坐标约定：横向 u 铺满整条路宽 = CFG.ROAD_W 米（ClampToEdge，不横向重复）；
+              纵向 v 每 8m 平铺一次（RepeatWrapping）。
+     取 1024×512（均为 2 的幂 → WebGL1 也能 mipmap + RepeatWrapping，
+     老 Android WebView 不会因非 POT 贴图变黑/被 clamp）。
+     横向 ≈73px/m、纵向 64px/m ≈ 等比 → 近景不再被横向拉伸成"糊斑"。
+     所有线宽/尺寸按"米"换算，改动 ROAD_W 时线条粗细仍然正确。 */
+  function makeAsphaltTexture() {
+    var TW = 1024, TH = 512;
+    var PPMX = TW / CFG.ROAD_W;            // 横向像素/米
+    var ux = function (m) { return m * PPMX; };
+    var cv = document.createElement('canvas'); cv.width = TW; cv.height = TH;
+    var cx = cv.getContext('2d');
+    // 1) 沥青底（中性深灰）
+    cx.fillStyle = '#35383e'; cx.fillRect(0, 0, TW, TH);
+    // 2) 细骨料噪点（密集小颗粒 = 沥青质感的关键，量要足）
+    for (var i = 0; i < 42000; i++) {
+      var g = 44 + Math.random() * 66;
+      cx.fillStyle = 'rgba(' + (g | 0) + ',' + (g | 0) + ',' + ((g + 6) | 0) + ',' + (0.16 + Math.random() * 0.42).toFixed(2) + ')';
+      var sz = 1 + Math.random() * 2.0;
+      cx.fillRect(Math.random() * TW, Math.random() * TH, sz, sz);
+    }
+    // 3) 极淡的低频色斑（只体现"料号差异"，不再是明显云斑）
+    for (var p = 0; p < 30; p++) {
+      cx.fillStyle = 'rgba(' + (30 + Math.random() * 24 | 0) + ',' + (32 + Math.random() * 24 | 0) + ',' + (38 + Math.random() * 24 | 0) + ',0.10)';
+      cx.beginPath();
+      cx.ellipse(Math.random() * TW, Math.random() * TH, ux(1.2 + Math.random() * 3.5), ux(0.9 + Math.random() * 3), Math.random() * 3, 0, 6.284);
+      cx.fill();
+    }
+    // 4) 沥青裂缝
+    cx.strokeStyle = 'rgba(18,20,24,.5)'; cx.lineWidth = 1.4;
+    for (var c = 0; c < 26; c++) {
+      var x0 = Math.random() * TW, y0 = Math.random() * TH;
+      cx.beginPath(); cx.moveTo(x0, y0);
+      for (var q = 0; q < 5; q++) { x0 += (Math.random() - 0.5) * ux(0.5); y0 += TH * 0.03 + Math.random() * TH * 0.06; cx.lineTo(x0, y0); }
+      cx.stroke();
+    }
+    // 5) 沥青修补块（少量深色硬边块，模拟补丁）
+    for (var pt = 0; pt < 5; pt++) {
+      cx.fillStyle = 'rgba(24,26,31,' + (0.18 + Math.random() * 0.16).toFixed(2) + ')';
+      cx.fillRect(Math.random() * TW, Math.random() * TH, ux(1.5 + Math.random() * 3), TH * (0.06 + Math.random() * 0.14));
+    }
+    // 6) 车辙磨损（每条车道两条略深的带）
+    var laneW = TW / CFG.LANES;
+    for (var L = 0; L < CFG.LANES; L++) {
+      (function (lc) {
+        [-1, 1].forEach(function (s) {
+          var gw = ux(0.34);
+          var gx = lc + s * laneW * 0.20 - gw / 2;
+          var gr = cx.createLinearGradient(gx, 0, gx + gw, 0);
+          gr.addColorStop(0, 'rgba(22,24,28,0)'); gr.addColorStop(0.5, 'rgba(22,24,28,.34)'); gr.addColorStop(1, 'rgba(22,24,28,0)');
+          cx.fillStyle = gr; cx.fillRect(gx, 0, gw, TH);
+        });
+      })((L + 0.5) * laneW);
+    }
+    // 7) 两侧白色边线（实线，约 15cm 宽，距路缘 0.3m）
+    cx.fillStyle = '#eef2f7';
+    var edgeW = Math.max(3, ux(0.15));
+    cx.fillRect(ux(0.30), 0, edgeW, TH);
+    cx.fillRect(TW - ux(0.30) - edgeW, 0, edgeW, TH);
+    // 8) 中央双黄实线（各 12cm、间距 12cm）
+    cx.fillStyle = '#e9bb3c';
+    var yW = Math.max(3, ux(0.12)), yGap = ux(0.12);
+    cx.fillRect(TW / 2 - yGap / 2 - yW, 0, yW, TH);
+    cx.fillRect(TW / 2 + yGap / 2, 0, yW, TH);
+    // 9) 车道分隔白虚线（一个贴图纵向周期 = 8m：3m 实 + 5m 空）
+    cx.fillStyle = '#eef2f7';   // ⚠️ 必须重置：上一段是黄色，否则虚线会画成黄色
+    var dashH = TH * 3 / 8, dW = Math.max(3, ux(0.15));
+    cx.fillRect(TW * 0.25 - dW / 2, 0, dW, dashH);
+    cx.fillRect(TW * 0.75 - dW / 2, 0, dW, dashH);
+
+    var tex = new THREE.CanvasTexture(cv);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    try {
+      var maxA = (renderer && renderer.capabilities && renderer.capabilities.getMaxAnisotropy) ? renderer.capabilities.getMaxAnisotropy() : 4;
+      tex.anisotropy = Math.max(1, Math.min(8, maxA));
+    } catch (e) { tex.anisotropy = 4; }
+    return tex;
+  }
+
+  /* ======== 道路路面 / 路缘 / 路肩 / 反光柱 ======== */
   function buildRoad() {
     var N = trackSamples.length;
     var posArr = [], uvArr = [], normArr = [], idxArr = [];
@@ -572,7 +810,11 @@
     roadGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvArr, 2));
     roadGeo.setAttribute('normal', new THREE.Float32BufferAttribute(normArr, 3));
     roadGeo.setIndex(idxArr);
-    var roadMat = new THREE.MeshLambertMaterial({ color: 0x4a4e57 });
+    /* v6.0：路面改用程序化沥青贴图（含车道线/轮迹），光滑度略降 → 更像沥青
+       ?flat=1 调试：退回纯色路面（用于判断画面异常是否来自贴图） */
+    var roadMat = /[?&]flat=1\b/.test(location.search)
+      ? new THREE.MeshLambertMaterial({ color: 0x4a4e57 })
+      : new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeAsphaltTexture() });
     var road = new THREE.Mesh(roadGeo, roadMat);
     road.frustumCulled = false;
     scene.add(road);
@@ -621,83 +863,122 @@
       scene.add(curbMesh);
     });
 
-    // 车道虚线（InstancedMesh）：双黄线 + 两侧白线
-    var rows = [
-      { x: -0.13, c: 0xf5c542 }, { x: 0.13, c: 0xf5c542 },
-      { x: -CFG.ROAD_HALF * 0.5, c: 0xe6ebef }, { x: CFG.ROAD_HALF * 0.5, c: 0xe6ebef }
-    ];
-    var perRow = 80, dashLen = 2.4, dashGap = 2.8;
-    var dGeo = new THREE.BoxGeometry(0.14, 0.012, dashLen);
-    var dMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    var total = rows.length * perRow;
-    dashInst = new THREE.InstancedMesh(dGeo, dMat, total);
-    dashInst.frustumCulled = false;
-    var m4 = new THREE.Matrix4(), v3 = new THREE.Vector3(), q0 = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1);
-    dashData = [];
-    var col = new THREE.Color();
-    var segLen = totalLen / perRow;
-    for (var r = 0; r < rows.length; r++) {
-      for (var k = 0; k < perRow; k++) {
-        var idx = r * perRow + k;
-        dashData.push({ x: rows[r].x, s: (k + 0.5) * segLen });
-        col.setHex(rows[r].c);
-        m4.compose(v3.set(rows[r].x, 0.025, 0), q0, s1);
-        dashInst.setMatrixAt(idx, m4);
-        dashInst.setColorAt(idx, col);
+    // 路肩：路缘外侧的碎石带（v6.0 新增，增加公路层次感）
+    [-1, 1].forEach(function (side) {
+      var shGeo = new THREE.BufferGeometry();
+      var sp = [], si = [];
+      for (var i = 0; i <= N; i++) {
+        var a = trackSamples[i % N];
+        var o1 = a.p.clone().add(a.right.clone().multiplyScalar(side * (half + 0.4)));
+        var o2 = a.p.clone().add(a.right.clone().multiplyScalar(side * (half + 2.4)));
+        sp.push(o1.x, 0.004, o1.z, o2.x, 0.004, o2.z);
       }
-    }
-    scene.add(dashInst);
+      for (var k2 = 0; k2 < N; k2++) {
+        var j0 = k2 * 2, j1 = j0 + 1, j2 = j0 + 2, j3 = j0 + 3;
+        // 朝上的绕序随左右镜像，保证正面朝上（否则同样会被剔除成"看不见"）
+        if (side > 0) { si.push(j0, j1, j2); si.push(j1, j3, j2); }
+        else { si.push(j0, j2, j1); si.push(j1, j2, j3); }
+      }
+      shGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+      shGeo.setIndex(si);
+      shGeo.computeVertexNormals();
+      var shMat = new THREE.MeshLambertMaterial({ color: 0x8f8474 });
+      var shMesh = new THREE.Mesh(shGeo, shMat);
+      shMesh.frustumCulled = false;
+      scene.add(shMesh);
+    });
+
+    // 反光柱（道路两侧，每 34m 一根；InstancedMesh 零开销）
+    try {
+      var stepP = 34, maxP = Math.ceil(totalLen / stepP) * 2 + 4;
+      var postGeo = new THREE.CylinderGeometry(0.075, 0.095, 0.95, 6);
+      var postMat = new THREE.MeshLambertMaterial({ color: 0xeef2f7 });
+      var posts = new THREE.InstancedMesh(postGeo, postMat, maxP);
+      posts.frustumCulled = false;
+      var pm = new THREE.Matrix4(), pv = new THREE.Vector3(), pq = new THREE.Quaternion(), ps = new THREE.Vector3(1, 1, 1);
+      var pn = 0;
+      for (var sP = 0; sP < totalLen && pn < maxP - 1; sP += stepP) {
+        for (var sd = -1; sd <= 1; sd += 2) {
+          var smp = sampleAtS(sP);
+          var offP = sd * (half + 1.6);
+          pv.set(smp.pos.x + smp.right.x * offP, 0.45, smp.pos.z + smp.right.z * offP);
+          pm.compose(pv, pq, ps);
+          posts.setMatrixAt(pn++, pm);
+        }
+      }
+      posts.count = pn;
+      scene.add(posts);
+      // 柱顶红色反光片
+      var capGeo = new THREE.BoxGeometry(0.13, 0.1, 0.06);
+      var capMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+      var caps = new THREE.InstancedMesh(capGeo, capMat, maxP);
+      caps.frustumCulled = false;
+      var cn = 0;
+      for (var sC = 0; sC < totalLen && cn < maxP - 1; sC += stepP) {
+        for (var sd2 = -1; sd2 <= 1; sd2 += 2) {
+          var smp2 = sampleAtS(sC);
+          var offC = sd2 * (half + 1.6);
+          pv.set(smp2.pos.x + smp2.right.x * offC, 0.82, smp2.pos.z + smp2.right.z * offC);
+          pm.compose(pv, pq, ps);
+          caps.setMatrixAt(cn++, pm);
+        }
+      }
+      caps.count = cn;
+      scene.add(caps);
+    } catch (eP) { /* 低端机忽略反光柱 */ }
+
+    // v6.0：车道线全部烘焙进沥青贴图（含中央双黄实线 + 车道虚线），
+    //       不再需要每帧刷新的 InstancedMesh 虚线，省一次逐帧矩阵更新。
+    dashInst = null; dashData = [];
   }
 
-  function updateDashes(playerS) {
-    if (!dashInst) return;
-    var m4 = new THREE.Matrix4(), v3 = new THREE.Vector3(), q0 = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1);
-    var segLen = totalLen / (dashData.length / 4);
-    for (var di = 0; di < dashData.length; di++) {
-      var d = dashData[di];
-      // s 跟随玩家（最近虚线往前推 ~120m）
-      var localS = (d.s - playerS);
-      // 取模
-      localS = ((localS % totalLen) + totalLen) % totalLen;
-      // 只渲染前方 [-20, 900] 区间
-      if (localS < -20 || localS > 900) {
-        // 隐藏：放到原点不可见
-        m4.compose(v3.set(0, -1000, 0), q0, s1);
-        dashInst.setMatrixAt(di, m4);
-        continue;
+  /* ======== 城市建筑群（沿路远景天际线，带程序化窗户贴图） ======== */
+  function makeWindowTexture() {
+    var c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    var x = c.getContext('2d');
+    x.fillStyle = '#79879a'; x.fillRect(0, 0, 64, 64);          // 墙面
+    for (var r = 0; r < 4; r++) {
+      for (var q = 0; q < 4; q++) {
+        var lit = Math.random() < 0.16;                          // 少量亮灯窗
+        x.fillStyle = lit ? 'rgba(255,224,155,.95)' : 'rgba(44,62,86,.88)';
+        x.fillRect(q * 16 + 3.5, r * 16 + 4, 9, 9);
       }
-      var s = sampleAtS(playerS + localS);
-      var px = s.pos.x + s.right.x * d.x;
-      var pz = s.pos.z + s.right.z * d.x;
-      // 朝向沿切线方向
-      var yaw = Math.atan2(-s.tan.x, -s.tan.z);
-      var e = new THREE.Euler(0, yaw, 0);
-      var q = new THREE.Quaternion().setFromEuler(e);
-      m4.compose(v3.set(px, 0.025, pz), q, s1);
-      dashInst.setMatrixAt(di, m4);
     }
-    dashInst.instanceMatrix.needsUpdate = true;
+    var t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
   }
 
-  /* ======== 城市建筑群（沿路一侧） ======== */
   function buildCityBlocks() {
     if (/[?&]hide=city\b/.test(location.search)) return;   // 调试：排除城市建筑
-    var bm = makeMaterial(0x5b6b7e, { metal: 0.2, rough: 0.8 });
+    var winTex = makeWindowTexture();
+    var bMats = [
+      new THREE.MeshLambertMaterial({ color: 0xf2f4f7, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xdbe6f2, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xf0e3d2, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xc9d6e4, map: winTex })
+    ];
     /* ⚠️ 修复：旧版楼群贴着赛道布置（侧向 -22~58m、高 14~52m、每 6 采样点一组），
        玩家在赛道上时视野被楼体完全填死（俯视验证：整屏灰蓝）。
-       现在楼群退到赛道外 60~170m 作远景天际线，不侵入行车视野。 */
+       v6.0：退到赛道外 75~200m 作远景天际线，带窗户贴图与高度层次。 */
     for (var i = 0; i < trackSamples.length; i += 12) {
       var s = trackSamples[i];
       var cluster = new THREE.Group();
       var n = 2 + ((Math.random() * 3) | 0);
       for (var k = 0; k < n; k++) {
-        var w = 8 + Math.random() * 16;
-        var d = 8 + Math.random() * 16;
-        var h = 10 + Math.random() * 30;
-        var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bm);
+        var w = 9 + Math.random() * 15;
+        var d = 9 + Math.random() * 15;
+        var h = 16 + Math.random() * 34;
+        var geo = new THREE.BoxGeometry(w, h, d);
+        // 按楼体尺寸缩放 UV，让窗户保持 ~4m×3.6m 的固定大小
+        var uv = geo.attributes.uv;
+        var ru = Math.max(1, Math.round(w / 4)), rv = Math.max(1, Math.round(h / 3.6));
+        for (var ui = 0; ui < uv.count; ui++) uv.setXY(ui, uv.getX(ui) * ru, uv.getY(ui) * rv);
+        uv.needsUpdate = true;
+        var m = new THREE.Mesh(geo, bMats[(Math.random() * bMats.length) | 0]);
         var side = (i % 24 === 0) ? 1 : -1;                 // 左右交替
-        var ox = side * (60 + Math.random() * 110);         // 侧向 60~170m
-        var oz = (Math.random() - 0.5) * 60;
+        var ox = side * (75 + Math.random() * 125);         // 侧向 75~200m
+        var oz = (Math.random() - 0.5) * 80;
         var pos = s.p.clone().add(s.right.clone().multiplyScalar(ox)).add(s.tan.clone().multiplyScalar(oz));
         pos.y = h / 2;
         m.position.copy(pos);
@@ -723,16 +1004,59 @@
     return gem;
   }
 
-  function makeTree() {
+  /* v6.0：植被多样化——针叶树 / 阔叶树 / 灌木 / 岩石 */
+  function makeTree(kind) {
     var g = new THREE.Group();
     var s = 0.85 + Math.random() * 0.95;
-    var trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22 * s, 0.32 * s, 2.3 * s, 6),
+    var trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * s, 0.32 * s, 2.3 * s, 6),
       new THREE.MeshLambertMaterial({ color: 0x7a5230 }));
     trunk.position.y = 1.15 * s; g.add(trunk);
-    var leaf = new THREE.Mesh(new THREE.ConeGeometry(1.85 * s, 4.4 * s, 7),
-      new THREE.MeshLambertMaterial({ color: Math.random() < 0.5 ? 0x3f9b43 : 0x4fae55, flatShading: true }));
-    leaf.position.y = 3.6 * s; g.add(leaf);
+    if (kind === 'broad') {
+      var leafCols = [0x4fae55, 0x3f9b43, 0x63b85f];
+      for (var i = 0; i < 3; i++) {
+        var rr = (1.35 + Math.random() * 0.75) * s;
+        var ball = new THREE.Mesh(new THREE.IcosahedronGeometry(rr, 0),
+          new THREE.MeshLambertMaterial({ color: leafCols[(Math.random() * 3) | 0], flatShading: true }));
+        ball.position.set((Math.random() - 0.5) * 1.3 * s, (3.0 + Math.random() * 1.2) * s, (Math.random() - 0.5) * 1.3 * s);
+        g.add(ball);
+      }
+    } else {
+      var layers = 2 + ((Math.random() * 2) | 0);
+      var pineCols = [0x2f8b3c, 0x3f9b43, 0x4fae55];
+      for (var L = 0; L < layers; L++) {
+        var lr = (1.9 - L * 0.42) * s, lh = (2.7 - L * 0.3) * s;
+        var cone = new THREE.Mesh(new THREE.ConeGeometry(lr, lh, 7),
+          new THREE.MeshLambertMaterial({ color: pineCols[L % 3], flatShading: true }));
+        cone.position.y = (2.6 + L * 1.35) * s;
+        cone.rotation.y = Math.random() * 3;
+        g.add(cone);
+      }
+    }
     g.userData.s = s;
+    return g;
+  }
+
+  function makeBush() {
+    var g = new THREE.Group();
+    var n = 2 + ((Math.random() * 3) | 0);
+    for (var i = 0; i < n; i++) {
+      var r = 0.45 + Math.random() * 0.55;
+      var b = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0),
+        new THREE.MeshLambertMaterial({ color: Math.random() < 0.5 ? 0x3f8f45 : 0x5aa85e, flatShading: true }));
+      b.position.set((Math.random() - 0.5) * 1.2, r * 0.72, (Math.random() - 0.5) * 1.2);
+      g.add(b);
+    }
+    return g;
+  }
+
+  function makeRock() {
+    var r = 0.4 + Math.random() * 0.85;
+    var g = new THREE.Group();
+    var m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0),
+      new THREE.MeshLambertMaterial({ color: 0x8b8d90, flatShading: true }));
+    m.position.y = r * 0.52;
+    m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    g.add(m);
     return g;
   }
 
@@ -777,12 +1101,12 @@
         scene.add(gem); gemsArr.push(gem);
       }
     }
-    // 树：s-based
-    for (var ti = 0; ti < 90; ti++) {
-      var tr = makeTree();
-      var sT = 40 + ti * 18 + Math.random() * 10;
+    // 树 / 灌木 / 岩石：s-based（v6.0 增加种类与层次）
+    for (var ti = 0; ti < 62; ti++) {
+      var tr = makeTree(Math.random() < 0.45 ? 'broad' : 'pine');
+      var sT = 30 + ti * 26 + Math.random() * 14;
       var side = (ti % 2) ? 1 : -1;
-      var off = 7 + Math.random() * 28;
+      var off = 8 + Math.random() * 30;
       var samp = sampleAtS(sT);
       var px = samp.pos.x + samp.right.x * side * (CFG.ROAD_HALF + off);
       var pz = samp.pos.z + samp.right.z * side * (CFG.ROAD_HALF + off);
@@ -791,21 +1115,47 @@
       tr.userData.sBase = sT; tr.userData.side = side; tr.userData.off = off;
       scene.add(tr); trees.push(tr);
     }
+    // 靠路灌木（贴近路肩，视觉上把道路"包"起来）
+    for (var bi = 0; bi < 30; bi++) {
+      var bs = makeBush();
+      var sB = 24 + bi * 54 + Math.random() * 20;
+      var sdB = (bi % 2) ? 1 : -1;
+      var offB = 6 + Math.random() * 7;
+      var smB = sampleAtS(sB);
+      bs.position.set(smB.pos.x + smB.right.x * sdB * (CFG.ROAD_HALF + offB), 0,
+                      smB.pos.z + smB.right.z * sdB * (CFG.ROAD_HALF + offB));
+      bs.rotation.y = Math.random() * Math.PI;
+      scene.add(bs); bushes.push(bs);
+    }
+    // 岩石点缀
+    for (var ri3 = 0; ri3 < 14; ri3++) {
+      var rk = makeRock();
+      var sR = 50 + ri3 * 118 + Math.random() * 40;
+      var sdR = (ri3 % 2) ? -1 : 1;
+      var offR = 7 + Math.random() * 16;
+      var smR = sampleAtS(sR);
+      rk.position.set(smR.pos.x + smR.right.x * sdR * (CFG.ROAD_HALF + offR), 0,
+                      smR.pos.z + smR.right.z * sdR * (CFG.ROAD_HALF + offR));
+      rk.rotation.y = Math.random() * Math.PI;
+      scene.add(rk); rocks.push(rk);
+    }
   }
 
   function clearWorld() {
     aiCars.forEach(function (a) { scene.remove(a.mesh); });
     gemsArr.forEach(function (g) { scene.remove(g); });
     trees.forEach(function (t) { scene.remove(t); });
+    bushes.forEach(function (b) { scene.remove(b); });
+    rocks.forEach(function (r) { scene.remove(r); });
     parts.forEach(function (p) { scene.remove(p.m); });
-    aiCars = []; gemsArr = []; trees = []; parts = [];
+    aiCars = []; gemsArr = []; trees = []; bushes = []; rocks = []; parts = [];
   }
 
   function resetRun() {
     runT = 0; dist = 0; score = 0; gems = 0; lives = 3;
     speed = 0; throttle = 0; lateral = 0; lateralVel = 0; carTilt = 0; steerVis = 0;
     inv = 0; shake = 0; flash = 0; comboN = 0; comboT = 0;
-    if (playerGrp) { playerGrp.visible = true; playerGrp.rotation.set(0, 0, 0); }
+    if (playerGrp) { playerGrp.visible = carVisible(); playerGrp.rotation.set(0, 0, 0); }
     clearWorld();
     spawnWorld();
     updateLives();
@@ -874,9 +1224,12 @@
   var playerS = 0; // 沿轨道的进度（米）
   var debugCamTop = false;
   function updatePlayer(dt) {
-    // 油门
-    if (input.kUp) setThrottle(Math.max(throttle, 1));
-    if (input.kDown) setThrottle(Math.min(throttle, -1));
+    // —— 油门 / 刹车：踏板按钮（或键盘）→ 平滑趋近目标值 ——
+    var tgt = 0;
+    if (input.gas || input.swipeGas || input.kUp) tgt += 1;
+    if (input.brake || input.swipeBrake || input.kDown) tgt -= 1;
+    throttle += (tgt - throttle) * Math.min(1, dt * (tgt === 0 ? 4 : 8));
+    if (Math.abs(throttle) < 0.004) throttle = 0;
     // 速度积分
     var thr = throttle;
     var drag = speed * CFG.ROLL_DRAG;
@@ -893,23 +1246,22 @@
     var advance = speed / 3.6 * dt; // km/h -> m/s
     playerS += advance;
     dist += Math.max(advance, 0);
-    // 转向输入
+    // —— 转向：屏幕右侧滑动（比例 -1~1）+ 键盘 ——
     var steerInput = 0;
-    if (input.drag) steerInput = input.drag.lx * (CFG.STEER_TOUCH * 2 / Math.max(W, 360));
-    var kb = 0;
-    if (input.kLeft) kb -= 1;
-    if (input.kRight) kb += 1;
-    if (kb) steerInput += kb * CFG.STEER_KBD * dt * 0.01; // scale to soft
-    // 限制横向加速度
-    lateralVel += (steerInput - lateralVel * 0.0) * dt * 14;
-    lateral += lateralVel * dt * 3.5;
-    // 横向自动回正
-    var restore = -lateral * 1.0 * dt;
-    if (Math.abs(lateral) > 0 && Math.abs(throttle) < 0.05) lateral += restore * 0.4;
-    if (lateral > CFG.STEER_MAX_OFFSET) { lateral = CFG.STEER_MAX_OFFSET; lateralVel = Math.min(lateralVel, 0); }
-    if (lateral < -CFG.STEER_MAX_OFFSET) { lateral = -CFG.STEER_MAX_OFFSET; lateralVel = Math.max(lateralVel, 0); }
+    if (input.drag) steerInput = input.drag.lx;
+    if (input.kLeft) steerInput -= 1;
+    if (input.kRight) steerInput += 1;
+    steerInput = clamp(steerInput, -1, 1);
+    // 轮胎抓地随车速变化：低速转向钝、高速转向灵
+    var grip = 0.45 + 0.55 * clamp(Math.abs(speed) / CFG.MAX_SPEED, 0, 1);
+    var targetLat = steerInput * CFG.STEER_RATE * grip;
+    lateralVel += (targetLat - lateralVel) * Math.min(1, dt * 9);
+    lateral += lateralVel * dt;
+    // 越过路缘 = 被挡住（不会开到草地上）
+    if (lateral > CFG.STEER_MAX_OFFSET) { lateral = CFG.STEER_MAX_OFFSET; if (lateralVel > 0) lateralVel = 0; }
+    if (lateral < -CFG.STEER_MAX_OFFSET) { lateral = -CFG.STEER_MAX_OFFSET; if (lateralVel < 0) lateralVel = 0; }
     // 转向可视化
-    var steerSig = clamp(lateralVel * 2.4, -1, 1);
+    var steerSig = clamp(lateralVel / CFG.STEER_RATE, -1, 1);
     steerVis += (steerSig - steerVis) * Math.min(1, dt * 6);
     carTilt += (steerSig * 0.16 - carTilt) * Math.min(1, dt * 8);
     // 应用位置
@@ -926,9 +1278,8 @@
     // 轮子滚动（按速度推角速度）
     var angV = speed / 3.6 / 0.33; // rad/s
     wheelSpin.forEach(function (ws) { ws.ang = (ws.ang || 0) + angV * dt; ws.grp.children[0].rotation.x = ws.ang; });
-    // 无敌闪烁
-    if (inv > 0 && Math.floor(time * 14) % 2 === 0) playerGrp.visible = false;
-    else playerGrp.visible = true;
+    // 无敌闪烁（座舱视角/调试隐藏时始终不可见）
+    playerGrp.visible = carVisible() && !(inv > 0 && Math.floor(time * 14) % 2 === 0);
   }
 
   function updateAI(dt, lanes) {
@@ -999,6 +1350,111 @@
     });
   }
 
+  /* ======== HUD：速度仪表盘 / 路线图 / 里程 ======== */
+  function drawGauge() {
+    if (!gaugeCtx) return;
+    var S = gaugeCv.width, c = S / 2, r = c - S * 0.03, ctx = gaugeCtx;
+    var a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;            // 270° 表盘
+    var vr = clamp(Math.abs(speed) / CFG.MAX_SPEED, 0, 1);
+    ctx.clearRect(0, 0, S, S);
+    // 底盘
+    ctx.beginPath(); ctx.arc(c, c, r - S * 0.03, 0, 6.284);
+    ctx.fillStyle = 'rgba(8,12,22,.62)'; ctx.fill();
+    ctx.lineWidth = S * 0.03; ctx.strokeStyle = 'rgba(255,255,255,.16)'; ctx.stroke();
+    // 弧槽
+    ctx.lineWidth = S * 0.052; ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(90,110,140,.42)';
+    ctx.beginPath(); ctx.arc(c, c, r - S * 0.10, a0, a1); ctx.stroke();
+    // 速度弧
+    ctx.strokeStyle = vr > 0.82 ? '#ff4d5e' : (vr > 0.55 ? '#ffb35c' : '#37d0ff');
+    ctx.beginPath(); ctx.arc(c, c, r - S * 0.10, a0, a0 + (a1 - a0) * vr); ctx.stroke();
+    // 刻度
+    ctx.lineWidth = Math.max(1.5, S * 0.009);
+    for (var i = 0; i <= 10; i++) {
+      var a = a0 + (a1 - a0) * (i / 10), ca = Math.cos(a), sa = Math.sin(a);
+      var r1 = r - S * 0.055, r2 = r - (i % 5 === 0 ? S * 0.115 : S * 0.085);
+      ctx.strokeStyle = (i % 5 === 0) ? 'rgba(230,240,255,.85)' : 'rgba(200,215,235,.45)';
+      ctx.beginPath(); ctx.moveTo(c + ca * r1, c + sa * r1); ctx.lineTo(c + ca * r2, c + sa * r2); ctx.stroke();
+    }
+    // 指针
+    var na = a0 + (a1 - a0) * vr;
+    ctx.strokeStyle = '#ff5a6e'; ctx.lineWidth = Math.max(2.5, S * 0.016); ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(c - Math.cos(na) * S * 0.045, c - Math.sin(na) * S * 0.045);
+    ctx.lineTo(c + Math.cos(na) * (r - S * 0.115), c + Math.sin(na) * (r - S * 0.115));
+    ctx.stroke();
+    ctx.beginPath(); ctx.fillStyle = '#e8f1ff'; ctx.arc(c, c, S * 0.028, 0, 6.284); ctx.fill();
+    // 数字
+    ctx.textAlign = 'center';
+    var kmh = Math.floor(Math.abs(speed));
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = '800 ' + Math.round(S * 0.185) + 'px system-ui,"PingFang SC",sans-serif';
+    ctx.fillText(String(kmh), c, c + S * 0.245);
+    ctx.fillStyle = 'rgba(190,215,240,.8)';
+    ctx.font = '600 ' + Math.round(S * 0.068) + 'px system-ui,"PingFang SC",sans-serif';
+    ctx.fillText('km/h', c, c + S * 0.335);
+    // 倒车标识
+    if (speed < -0.5) {
+      ctx.fillStyle = '#ff9d2e';
+      ctx.font = '800 ' + Math.round(S * 0.085) + 'px system-ui,sans-serif';
+      ctx.fillText('R', c, c - S * 0.20);
+    }
+  }
+
+  function drawMinimap() {
+    if (!miniCtx || !trackSamples.length) return;
+    var S = miniCv.width, pad = S * 0.13, ctx = miniCtx;
+    ctx.clearRect(0, 0, S, S);
+    if (!miniBox) {                       // 赛道包围盒（只算一次）
+      var mnx = 1e9, mxx = -1e9, mnz = 1e9, mxz = -1e9;
+      for (var i = 0; i < trackSamples.length; i++) {
+        var p = trackSamples[i].p;
+        if (p.x < mnx) mnx = p.x; if (p.x > mxx) mxx = p.x;
+        if (p.z < mnz) mnz = p.z; if (p.z > mxz) mxz = p.z;
+      }
+      miniBox = { mnx: mnx, mxx: mxx, mnz: mnz, mxz: mxz };
+    }
+    var b = miniBox;
+    var w = Math.max(b.mxx - b.mnx, 1), h = Math.max(b.mxz - b.mnz, 1);
+    var k = Math.min((S - pad * 2) / w, (S - pad * 2) / h);
+    var ox = (S - w * k) / 2 - b.mnx * k, oz = (S - h * k) / 2 - b.mnz * k;
+    function tx(x) { return ox + x * k; }
+    function ty(z) { return oz + z * k; }
+    // 赛道环
+    ctx.beginPath();
+    for (var j = 0; j <= trackSamples.length; j++) {
+      var pp = trackSamples[j % trackSamples.length].p;
+      if (j === 0) ctx.moveTo(tx(pp.x), ty(pp.z)); else ctx.lineTo(tx(pp.x), ty(pp.z));
+    }
+    ctx.closePath();
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(18,26,42,.85)'; ctx.lineWidth = S * 0.075; ctx.stroke();
+    ctx.strokeStyle = 'rgba(130,165,205,.6)'; ctx.lineWidth = S * 0.022; ctx.stroke();
+    // AI 车
+    ctx.fillStyle = '#8fd0ff';
+    for (var ai = 0; ai < aiCars.length; ai++) {
+      var ap = aiCars[ai].mesh.position;
+      ctx.beginPath(); ctx.arc(tx(ap.x), ty(ap.z), S * 0.021, 0, 6.284); ctx.fill();
+    }
+    // 玩家
+    if (playerGrp) {
+      var gp = playerGrp.position;
+      ctx.beginPath(); ctx.arc(tx(gp.x), ty(gp.z), S * 0.037, 0, 6.284);
+      ctx.fillStyle = '#ff4d5e'; ctx.fill();
+      ctx.lineWidth = S * 0.016; ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.stroke();
+    }
+  }
+
+  function updateHud(dt) {
+    hudT += dt;
+    score += Math.max(0, speed / 3.6 * dt) * 1.1;
+    uiScore.textContent = Math.floor(score);
+    if (uiGems) uiGems.textContent = gems;
+    if (uiMile) uiMile.textContent = dist >= 1000 ? (dist / 1000).toFixed(2) + ' km' : Math.floor(dist) + ' m';
+    // 仪表/地图 20fps 足够，省电
+    if (hudT >= 0.05) { hudT = 0; drawGauge(); drawMinimap(); }
+  }
+
   /* ======== 主循环 ======== */
   function update(dt) {
     time += dt;
@@ -1010,7 +1466,6 @@
     updateAI(dt, lanes);
     updateGems(dt);
     updateTrees(dt);
-    updateDashes(playerS);
 
     // —— 连击 ——
     comboT -= dt;
@@ -1070,12 +1525,15 @@
       if (pt.life <= 0) { scene.remove(pt.m); parts.splice(pi, 1); }
     }
 
-    // —— HUD ——
-    score += Math.max(0, speed / 3.6 * dt) * 1.1;
-    uiScore.textContent = Math.floor(score);
-    uiDist.textContent = Math.floor(dist);
-    uiSpeed.textContent = Math.floor(Math.abs(speed));
+    // —— HUD：仪表盘 / 路线图 / 里程 ——
+    updateHud(dt);
     Audio.engineSpeed(ratio / 1.42 + 0.08);
+    // —— 云层缓慢漂移 ——
+    for (var ci = 0; ci < clouds.length; ci++) {
+      var cl = clouds[ci];
+      cl.position.x += 2.2 * dt;
+      if (cl.position.x > 760) cl.position.x = -760;
+    }
 
     updateCamera(dt);
     flushPopups();
@@ -1100,7 +1558,7 @@
   function gameOver() {
     state = 'over'; overT = 0;
     Audio.stopEngine(); Audio.crash(); vib(90);
-    if (playerGrp) playerGrp.visible = true;
+    if (playerGrp) playerGrp.visible = carVisible();
     uiFinalS.textContent = Math.floor(score);
     uiFinalD.textContent = Math.floor(dist);
     uiFinalG.textContent = gems;
@@ -1112,7 +1570,15 @@
   var __fpsN = 0, __fpsT = 0, __rendered = 0;
   function frame(ts) {
     requestAnimationFrame(frame);
-    var dt = Math.min((ts - lastTm) / 1000 || 0.016, 0.05);
+    /* ⚠️ v0.13.0 修复：dt 必须钳制在 [0, 0.05]。
+       旧写法 Math.min((ts-lastTm)/1000 || 0.016, 0.05) 没有下限：
+       ts 小于 lastTm 时（首帧时钟基准不一致 / 后台切回 / 系统时间被调整）
+       会得到 **负数 dt**，于是 `flash -= dt`、`inv -= dt`、`time += dt`
+       全部反向累加 —— 表现为"什么都没撞却整屏闪红"。
+       现在负数/非法一律回落 0.016，并封顶 0.05（防长卡顿后瞬移）。 */
+    var rawDt = (ts - lastTm) / 1000;
+    if (!isFinite(rawDt) || rawDt <= 0) rawDt = 0.016;
+    var dt = Math.min(rawDt, 0.05);
     lastTm = ts;
     ensureSize();                 // 每帧核对画布尺寸（首帧视口为 0 / 旋转后失配）
     if (!scene) { return; }       // 场景还没建好
@@ -1151,6 +1617,7 @@
       camera.position.set(Math.sin(ca) * rad, cy + Math.sin(time * 0.6) * 0.4, -2 + Math.cos(ca) * rad);
       camera.lookAt(0, 1, -3);
       gemsArr.forEach(function (g) { g.rotation.y += dt * 2.2; });
+      updateHud(dt);
       render();
     } else {
       update(dt);
@@ -1185,9 +1652,10 @@
     menu.classList.add('hidden'); over.classList.add('hidden');
     playerS = 0; // 每局从赛道起点开始
     resetRun();
-    if (playerGrp) { playerGrp.visible = true; }
+    if (playerGrp) { playerGrp.visible = carVisible(); }
     state = 'run';
     setViewVisible(true);
+    if (playerGrp) { playerGrp.visible = carVisible(); }   // state 已切到 run，座舱视角此处再收敛一次
     Audio.startEngine(); vib(10);
   }
 
@@ -1243,13 +1711,33 @@
     }
     try {
       buildTrack();
+      // 调试：?dump=1 输出赛道采样诊断（段长异常 / 起点附近采样与朝向）
+      if (/[?&]dump=1\b/.test(location.search)) {
+        var segs = [], mxS = 0, mxi = 0;
+        for (var di = 0; di < trackSamples.length; di++) {
+          var a1 = trackSamples[di].p, b1 = trackSamples[(di + 1) % trackSamples.length].p;
+          var dd1 = a1.distanceTo(b1); segs.push(dd1);
+          if (dd1 > mxS) { mxS = dd1; mxi = di; }
+        }
+        var avgS = totalLen / trackSamples.length, outs = [];
+        for (var oi = 0; oi < segs.length; oi++) if (segs[oi] > avgS * 2.5) outs.push(oi + ':' + segs[oi].toFixed(1));
+        window.__diagLog('[ERR] DUMP avg=' + avgS.toFixed(2) + ' max=' + mxS.toFixed(2) + '@' + mxi +
+          ' L=' + totalLen.toFixed(1) + ' N=' + trackSamples.length + ' outliers[' + outs.join(',') + ']');
+        var near2 = [];
+        for (var ni = -3; ni <= 3; ni++) {
+          var ii = ((ni % trackSamples.length) + trackSamples.length) % trackSamples.length;
+          var sm3 = trackSamples[ii];
+          near2.push(ii + 'p(' + sm3.p.x.toFixed(1) + ',' + sm3.p.z.toFixed(1) + ')r(' + sm3.right.x.toFixed(2) + ',' + sm3.right.z.toFixed(2) + ')');
+        }
+        window.__diagLog('[ERR] NEAR ' + near2.join(' '));
+      }
       buildScene();
       buildCityBlocks();
       playerGrp = playerCar();
       scene.add(playerGrp);
       seatCam = new THREE.Object3D();
       seatCam.position.copy(CFG.COCKPIT_OFFSET);
-      seatCam.rotation.x = -0.05;
+      seatCam.rotation.x = -0.05;   // v6.0：略微下俯，越过引擎盖看清前方路面（不俯太多以免车身占满画面）
       playerGrp.add(seatCam);
       var initSamp = sampleAtS(0);
       playerGrp.position.set(initSamp.pos.x, 0, initSamp.pos.z);
@@ -1272,6 +1760,43 @@
       var q = /[?&]view=(\w+)/.exec(location.search);
       if (q && q[1] === 'cockpit') { viewMode = COCKPIT; setViewUI(); }
       if (/[?&]autostart=1\b/.test(location.search)) { Audio.ensure(); startRun(); }  // 同步启动（headless 截图验证用；60ms 定时器在 headless 会被节流）
+      // 调试：?gas=1 持续油门（配合 autostart 做自动化画面验证）
+      if (/[?&]gas=1\b/.test(location.search)) input.gas = true;
+      // 调试：?ff=N 快进 N 秒。无头 Chrome 在页面 load 完成时立即截图（拿不到"运行中"的画面），
+      //       这里同步跑 N*60 帧把车开到中途，用于离线验证 速度/里程/仪表盘/路线图/转弯 是否真的动。
+      var ffm = /[?&]ff=(\d+)/.exec(location.search);
+      if (ffm && state === 'run') {
+        var ffs = Math.min(parseInt(ffm[1], 10) || 0, 180);
+        for (var fi = 0; fi < ffs * 60; fi++) update(1 / 60);
+      }
+      // 调试：?hide=car|gem|post|prop 逐组排除（定位"画面里的陌生几何"）
+      if (/[?&]hide=car\b/.test(location.search) && playerGrp) { playerGrp.visible = false; carHiddenByDebug = true; }
+      // 调试：?inspect=1 列出玩家周围 45m 内的场景对象（含 Sprite/InstancedMesh）+ 索引
+      if (/[?&]inspect=1\b/.test(location.search) && playerGrp) {
+        var out2 = [];
+        scene.children.forEach(function (o, idx) {
+          var bx3 = new THREE.Box3();
+          try { bx3.setFromObject(o); } catch (e4) { return; }
+          if (!isFinite(bx3.min.x)) return;
+          var ct3 = bx3.getCenter(new THREE.Vector3()), sz3 = bx3.getSize(new THREE.Vector3());
+          var d3 = ct3.distanceTo(playerGrp.position);
+          if (d3 - sz3.length() / 2 < 45) {
+            out2.push(idx + ':' + o.type + (o.geometry ? '/' + o.geometry.type : '') +
+              (o.material ? ('#' + (o.material.color ? o.material.color.getHexString() : '-') + (o.material.vertexColors ? 'VC' : '') + (o.material.map ? 'MAP' : '')) : '') +
+              ' sz' + sz3.x.toFixed(0) + 'x' + sz3.y.toFixed(0) + 'x' + sz3.z.toFixed(0) + ' d' + d3.toFixed(0));
+          }
+        });
+        window.__diagLog('[ERR] LIST(' + scene.children.length + ') ' + out2.join(' | '));
+      }
+      // 调试：?only=N（只显示索引 N 的对象 + 路面 23；灯光始终保留）——单个对象逐一确认
+      var on3 = /[?&]only=(\d+)/.exec(location.search);
+      if (on3) {
+        var keep3 = +on3[1];
+        scene.children.forEach(function (o, i) {
+          if (o.isLight) return;
+          o.visible = (i === keep3 || i === 23);
+        });
+      }
       lastTm = performance.now();
       window.__booted = true;
       if (window.__diagLog) window.__diagLog('启动完成，进入渲染循环');

@@ -26,12 +26,17 @@ window.__diagText = function () {
 window.__diagRefresh = function () {
   try { var el = document.getElementById('diag'); if (el) el.textContent = window.__diagText(); } catch (e) {}
 };
+/* 诊断条默认隐藏：仅当出现 [FATAL]/[ERR]/[REJ] 级错误时才弹出（正常游戏界面无黑条） */
 window.__diagLog = function (m) {
   try {
     var s = String(m);
     if (window.__diag.msgs.indexOf(s) < 0) window.__diag.msgs.push(s);
-    var el = document.getElementById('diag');
-    if (el) { el.style.display = 'block'; el.textContent = window.__diagText(); }
+    if (/^\[(FATAL|ERR|REJ)\]/.test(s)) {
+      var el = document.getElementById('diag');
+      if (el) { el.style.display = 'block'; el.textContent = window.__diagText(); }
+      var fb = document.getElementById('fatalBox');
+      if (fb) { fb.style.display = 'block'; fb.textContent = s; }
+    }
   } catch (e) {}
 };
 
@@ -72,7 +77,6 @@ window.addEventListener('unhandledrejection', function (e) {
   .score-box .label { font-size:10px; letter-spacing:2px; opacity:.65; }
   .score-box .value { font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
   #score { color:#ffd23f; }
-  #distVal { color:#7fd7ff; }
   /* 功能按钮：默认竖排（竖屏），横屏时改横排 */
   #btnSound, #btnView, #btnGyro { position:absolute; pointer-events:auto; height:34px; border-radius:11px;
         font-size:12px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; }
@@ -92,13 +96,7 @@ window.addEventListener('unhandledrejection', function (e) {
   #combo .cm { font-size:19px; font-weight:900; color:#ffd23f; text-shadow:0 0 14px rgba(255,200,60,.8); letter-spacing:1px; }
   #combo .bar { width:140px; height:4px; border-radius:2px; background:rgba(255,255,255,.16); margin:4px auto 0; overflow:hidden; }
   #combo .bar i { display:block; height:100%; width:100%; background:linear-gradient(90deg,#ffd23f,#ff7a2e); }
-  /* —— 速度表 —— */
-  #speedBox { position:absolute; left:12px; bottom:34px; background:rgba(8,12,24,.55); border:1px solid rgba(255,255,255,.14);
-              border-radius:14px; padding:5px 12px; backdrop-filter:blur(6px); text-align:center;
-              left:calc(12px + env(safe-area-inset-left)); }
-  #speedBox .label { font-size:10px; letter-spacing:2px; opacity:.65; }
-  #speedVal { font-size:22px; font-weight:800; color:#ffb35c; font-variant-numeric:tabular-nums; }
-  .unit { font-size:11px; opacity:.7; }
+  /* —— 生命值 —— */
   #lives { position:absolute; right:12px; bottom:34px; display:flex; gap:6px;
            filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); right:calc(12px + env(safe-area-inset-right)); }
   .heart { width:18px; height:18px; transform:rotate(45deg); border-radius:4px; background:linear-gradient(135deg,#ff5a6e,#ff2d55);
@@ -128,19 +126,53 @@ window.addEventListener('unhandledrejection', function (e) {
          transition:transform .08s; }
   .btn:active { transform:scale(.96); }
   .btn.ghost { background:rgba(255,255,255,.06); color:#cfe0f5; border:1px solid rgba(255,255,255,.18); box-shadow:none; }
-  .tips { font-size:11px; color:#7e8ba3; line-height:1.8; }
-  .tips b { color:#bcd; }
+  .tips { font-size:11px; color:#93a1b8; line-height:1.8;
+          background:rgba(6,10,18,.62); border:1px solid rgba(255,255,255,.09); border-radius:12px;
+          padding:9px 16px; backdrop-filter:blur(5px); max-width:560px; }
+  .tips b { color:#cfe0f5; }
+
+  /* —— 非比赛状态（开始菜单 / 结算）隐藏比赛 HUD，避免和标题/说明叠在一起 —— */
+  #hud:not(.playing) .top,
+  #hud:not(.playing) #gauge,
+  #hud:not(.playing) #pedals,
+  #hud:not(.playing) #mapBox,
+  #hud:not(.playing) #combo,
+  #hud:not(.playing) #lives,
+  #hud:not(.playing) #viewBadge { display:none; }
   #overTitle { font-size:25px; font-weight:900; color:#ff5a6e; letter-spacing:2px; }
   #overStats { font-size:13px; color:#cbd6e6; line-height:2.1; }
   #overStats b { color:#ffd23f; font-size:17px; }
   .no-webgl { color:#ff8a8a; font-size:13px; max-width:300px; line-height:1.8; }
   .ver { position:absolute; bottom:30px; font-size:10px; color:#55627a; letter-spacing:1px; }
 
-  /* —— 诊断条（真机排查用；确认稳定后可移除）—— */
-  #diag { position:fixed; left:0; right:0; bottom:0; z-index:99999; display:block;
+  /* —— 诊断条（默认隐藏：只在 [FATAL]/[ERR] 崩溃时自动弹出，正常游戏不显示）—— */
+  #diag { position:fixed; left:0; right:0; bottom:0; z-index:99999; display:none;
           background:rgba(0,0,0,.78); color:#7ff0c0; font:10px/1.45 monospace;
           padding:3px 8px calc(3px + env(safe-area-inset-bottom)); white-space:pre-wrap;
           word-break:break-all; pointer-events:none; }
+
+  /* —— 左下：速度仪表盘 —— */
+  #gauge { position:absolute; left:calc(8px + env(safe-area-inset-left)); bottom:calc(8px + env(safe-area-inset-bottom));
+           width:112px; height:112px; pointer-events:none; filter:drop-shadow(0 4px 12px rgba(0,0,0,.45)); }
+  /* —— 左下：油门 / 刹车踏板 —— */
+  #pedals { position:absolute; left:calc(126px + env(safe-area-inset-left));
+            bottom:calc(10px + env(safe-area-inset-bottom)); display:flex; gap:12px; align-items:flex-end;
+            pointer-events:none; }
+  .pedal { pointer-events:auto; width:74px; height:74px; border-radius:50%; display:flex; align-items:center;
+           justify-content:center; font-size:14px; font-weight:800; letter-spacing:1px; user-select:none;
+           border:2px solid rgba(255,255,255,.25); backdrop-filter:blur(4px); transition:transform .06s, box-shadow .1s; }
+  .pedal.gas { background:radial-gradient(circle at 35% 30%, rgba(120,255,190,.35), rgba(20,120,80,.55));
+               color:#d8fff0; box-shadow:0 6px 18px rgba(30,200,130,.28); }
+  .pedal.brake { background:radial-gradient(circle at 35% 30%, rgba(255,150,160,.35), rgba(140,25,45,.55));
+                 color:#ffe0e4; box-shadow:0 6px 18px rgba(220,50,80,.28); }
+  .pedal.on { transform:scale(.92); box-shadow:0 0 22px rgba(255,255,255,.35); }
+  /* —— 右下：路线图 + 里程 —— */
+  #mapBox { position:absolute; right:calc(8px + env(safe-area-inset-right)); bottom:calc(8px + env(safe-area-inset-bottom));
+            width:118px; pointer-events:none; text-align:center; }
+  #mini { width:118px; height:118px; display:block; border-radius:14px;
+          background:rgba(8,12,22,.5); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(4px); }
+  #mile { margin-top:3px; font-size:12px; font-weight:800; color:#7fd7ff; font-variant-numeric:tabular-nums;
+          text-shadow:0 1px 4px rgba(0,0,0,.6); }
 
   /* —— 横屏适配：屏幕高度小，压缩纵向、按钮横排 —— */
   @media (orientation: landscape) and (max-height: 560px) {
@@ -155,8 +187,13 @@ window.addEventListener('unhandledrejection', function (e) {
     #btnSound { width:30px; font-size:14px; top:56px; }
     #btnView { top:56px; right:50px; }
     #btnGyro { top:56px; right:12px; }
-    #speedBox { bottom:28px; }
     #lives { bottom:28px; }
+    #gauge { width:96px; height:96px; bottom:6px; }
+    #pedals { left:calc(110px + env(safe-area-inset-left)); bottom:6px; gap:10px; }
+    .pedal { width:62px; height:62px; font-size:12px; }
+    #mapBox { width:100px; bottom:6px; }
+    #mini { width:100px; height:100px; }
+    #mile { font-size:11px; }
   }
 </style>
 </head>
@@ -166,14 +203,22 @@ window.addEventListener('unhandledrejection', function (e) {
 <div id="hud">
   <div class="top">
     <div class="score-box"><div class="label">得分</div><div class="value" id="score">0</div></div>
-    <div class="score-box"><div class="label">里程 m</div><div class="value" id="distVal">0</div></div>
+    <div class="score-box"><div class="label">宝石</div><div class="value" id="gemVal">0</div></div>
   </div>
   <div id="viewBadge">追尾视角</div>
   <button id="btnSound">&#9835;</button>
   <button id="btnView" class="hidden">切换视角</button>
   <button id="btnGyro">陀螺仪·关</button>
   <div id="combo"><div class="cm" id="comboTxt">x1</div><div class="bar"><i id="comboBar"></i></div></div>
-  <div id="speedBox"><div class="label">km/h</div><div id="speedVal">0</div></div>
+  <canvas id="gauge" width="224" height="224"></canvas>
+  <div id="pedals">
+    <div class="pedal brake" id="pedBrake">刹车</div>
+    <div class="pedal gas" id="pedGas">油门</div>
+  </div>
+  <div id="mapBox">
+    <canvas id="mini" width="236" height="236"></canvas>
+    <div id="mile">0 m</div>
+  </div>
   <div id="lives"></div>
 </div>
 <div id="flash"></div>
@@ -185,12 +230,13 @@ window.addEventListener('unhandledrejection', function (e) {
   <div class="badge">横屏 · 弯道赛道 · 双视角</div>
   <button class="btn" id="btnStart">开 始</button>
   <div class="tips">
-    <span>&#128241; 触屏：<b>上滑加速 · 下滑减速</b> · 左右拖动转向</span><br>
-    <span>&#128268; 点右上 <b>陀螺仪</b> 可用机身倾斜调整视角</span><br>
-    <span>&#9000; 键盘：←→/A D 转向 · ↑加速 · ↓刹车 · <b>C 视角 · G 陀螺仪</b></span><br>
+    <span>&#128664; 左下 <b>油门 / 刹车踏板</b> · 屏幕右侧左右滑动控制转向</span><br>
+    <span>&#128506; 右下 <b>路线图</b> 实时显示位置与里程</span><br>
+    <span>&#128268; 点右上 <b>陀螺仪</b> 可用机身倾斜调整视角 · <b>C</b> 切换车内/车后视角</span><br>
+    <span>&#9000; 键盘：←→/A D 转向 · ↑油门 · ↓刹车</span><br>
     <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞车损失生命</span>
   </div>
-  <div class="ver">v5.0</div>
+  <div class="ver">v0.13.0</div>
 </div>
 
 <!-- 结束 -->
