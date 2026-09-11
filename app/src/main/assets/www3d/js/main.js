@@ -527,6 +527,7 @@
       if (i < 2) frontWheelGrps.push(wg2);
       wheelSpin.push({ grp: wg2, r: 0.33, child: wg2.children[0] });
     }
+    addBlobShadow(g, 2.6, 5.1, 0.025);          // v0.13.5：车身投影（玩家/AI 共用 makeSupercar）
     g.userData.opts = opts;
     return g;
   }
@@ -1119,6 +1120,17 @@
     var dashH = TH * 3 / 8, dW = Math.max(3, ux(0.15));
     cx.fillRect(TW * 0.25 - dW / 2, 0, dW, dashH);
     cx.fillRect(TW * 0.75 - dW / 2, 0, dW, dashH);
+    // 10) v0.13.5 路缘 AO 暗带：贴图最外 ~0.9m 向内渐变压暗。
+    //     真实道路上路缘/护栏/植被会遮住低角度天光，路两侧总有一条暗带；
+    //     没有它，路面像一块浮在草地上的"贴纸"，与地面没有光学衔接。
+    var aoW = ux(0.9);
+    [0, 1].forEach(function (sg) {
+      var gr = cx.createLinearGradient(sg ? TW : 0, 0, sg ? TW - aoW : aoW, 0);
+      gr.addColorStop(0, 'rgba(12,14,18,0.32)');
+      gr.addColorStop(1, 'rgba(12,14,18,0)');
+      cx.fillStyle = gr;
+      cx.fillRect(sg ? TW - aoW : 0, 0, aoW, TH);
+    });
 
     var tex = srgb(new THREE.CanvasTexture(cv));   // v0.13.3：沥青贴图同样是 sRGB 颜色数据
     tex.wrapS = THREE.ClampToEdgeWrapping;
@@ -1343,6 +1355,7 @@
         pos.y = h / 2;
         m.position.copy(pos);
         m.rotation.y = Math.random() * Math.PI;
+        addBlobShadow(m, w * 1.5, d * 1.5, -h / 2 + 0.04);  // v0.13.5：楼脚暗斑（挂楼体上，随楼旋转）
         cluster.add(m);
       }
       scene.add(cluster);
@@ -1365,6 +1378,50 @@
   }
 
   /* v6.0：植被多样化——针叶树 / 阔叶树 / 灌木 / 岩石 */
+  /* ======== v0.13.5 假接触阴影（blob shadow）========
+     现状：shadowMap 0 处，树/灌木/岩石/车/楼都"浮"在地上没有落地影，
+     是 v0.13.3 被评"假"的另一半原因（另一半——大气透视——已在 v0.13.4 解决）。
+     做法：共享一张径向渐变 CanvasTexture（中心深、边缘透明），
+     在各物体 Group 脚下加一块贴地 Plane —— 随物体移动/旋转，零逐帧开销。
+     ?sh=0 可关（A/B 对比用） */
+  var shOff = /[?&]sh=0\b/.test(location.search);
+  var shadowTex = null, shadowMat = null, shadowGeo = null;
+  function makeShadowAssets() {
+    if (shOff || shadowTex) return;
+    var S = 128;
+    var cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+    var cx = cv.getContext('2d');
+    /* ⚠️ 不用 alpha 通道：实机（swiftshader/部分 GPU 驱动）上 CanvasTexture 的
+       alpha 在本场景不生效（隔离页正常、游戏内消失，原因未明）。
+       改用纯 RGB 径向渐变 + MultiplyBlending：白色(255) = 不变，
+       中心灰(~92) = 压到 36% 亮度。视觉等效软阴影，且完全不依赖 alpha。 */
+    cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, S, S);
+    var g = cx.createRadialGradient(S / 2, S / 2, S * 0.05, S / 2, S / 2, S * 0.5);
+    g.addColorStop(0, 'rgb(88,90,96)');
+    g.addColorStop(0.55, 'rgb(150,152,156)');
+    g.addColorStop(1, 'rgb(255,255,255)');
+    cx.fillStyle = g; cx.fillRect(0, 0, S, S);
+    shadowTex = srgb(new THREE.CanvasTexture(cv));
+    shadowMat = new THREE.MeshBasicMaterial({
+      map: shadowTex, transparent: true, depthWrite: false,
+      blending: THREE.MultiplyBlending,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      side: THREE.DoubleSide
+    });
+    shadowGeo = new THREE.PlaneGeometry(1, 1);
+  }
+  /* 在 grp 脚下加一块 w×d 的椭圆暗斑（y = 离地高度，避免与路面 z-fighting） */
+  function addBlobShadow(grp, w, d, y) {
+    if (shOff) return;
+    makeShadowAssets();
+    var m = new THREE.Mesh(shadowGeo, shadowMat);
+    m.rotation.x = -Math.PI / 2;
+    m.scale.set(w, d, 1);
+    m.position.y = y;
+    m.renderOrder = 1;
+    grp.add(m);
+  }
+
   function makeTree(kind) {
     var g = new THREE.Group();
     var s = 0.85 + Math.random() * 0.95;
@@ -1393,6 +1450,7 @@
       }
     }
     g.userData.s = s;
+    addBlobShadow(g, 2.9 * s, 2.3 * s, 0.02);   // v0.13.5：树冠投影略大于冠幅
     return g;
   }
 
@@ -1406,6 +1464,7 @@
       b.position.set((Math.random() - 0.5) * 1.2, r * 0.72, (Math.random() - 0.5) * 1.2);
       g.add(b);
     }
+    addBlobShadow(g, 1.7, 1.35, 0.02);          // v0.13.5
     return g;
   }
 
@@ -1417,6 +1476,7 @@
     m.position.y = r * 0.52;
     m.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     g.add(m);
+    addBlobShadow(g, r * 2.9, r * 2.9, 0.02);   // v0.13.5
     return g;
   }
 
