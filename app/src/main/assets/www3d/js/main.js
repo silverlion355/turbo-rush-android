@@ -42,7 +42,20 @@
     STEER_SWIPE: 0.10, STEER_SWIPE_MIN: 60, // v0.13.1：滑动 0.16 屏宽打满 → 0.10 屏宽（且不低于 60px）
     FOV: 64, CAM_DIST: 8.6, CAM_H: 4.6, CAM_LOOK_Y: 1.1, CAM_LOOK_AHEAD: 24,
     COCKPIT_OFFSET: new THREE.Vector3(0.30, 0.98, 0.34),   // v6.0：0.74 → 0.98（抬到仪表台上方、挡风下沿之上，越过引擎盖看清路面）
-    INVINCIBLE: 1.8, HIT_DROP: 0.55,
+    INVINCIBLE: 2.6, HIT_DROP: 0.62,
+    /* —— v0.13.2 生命值 / 车损系统 ——
+       不再"一撞就掉命"：撞击按相对速度换算成车损值累加，
+       累计满 DMG_MAX(100) 才扣 1 条命并清零；停撞 DMG_REPAIR_DELAY 秒后开始自动修复。 */
+    LIVES: 3,
+    DMG_MAX: 100,           // 车损上限：满 100 掉 1 条命
+    DMG_MIN: 6,             // 单次撞击最低伤害（轻擦）
+    DMG_MAXHIT: 45,         // 单次撞击最高伤害（全速追尾）
+    DMG_PER_KMH: 0.20,      // 每 1km/h 相对接近速度换算的伤害系数
+    DMG_LAT: 0.7,           // 横向（侧擦）接近速度的权重
+    DMG_REPAIR: 1.6,        // 自动修复速度（车损/秒）
+    DMG_REPAIR_DELAY: 3.0,  // 停撞多少秒后开始修复
+    DMG_SMOKE: 70,          // 车损超过此值开始冒烟、HUD 转红
+    DMG_SLOW: 0.14,         // 满损时极速打 86 折
     GEM_SCORE: 60, GEM_COMBO_WIN: 1.8,
     TRACK_N: 600, LOOP_KM_H: 200,
     FOG_NEAR: 120, FOG_FAR: 640, FOG_COLOR: 0xcfe4f0,       // v6.0：远景更通透
@@ -109,6 +122,7 @@
   /* ======== DOM / 状态 ======== */
   var canvas = $('game'), renderer, scene, camera;
   var uiScore = $('score'), uiGems = $('gemVal'), uiMile = $('mile'), uiLives = $('lives'),
+      uiDmgWrap = $('dmgWrap'), uiDmgFill = $('dmgFill'),
       uiView = $('viewBadge'), btnView = $('btnView'), btnGyro = $('btnGyro'), menu = $('menu'), over = $('over'),
       uiFinalS = $('finalScore'), uiFinalD = $('finalDist'), uiFinalG = $('finalGems'),
       uiCombo = $('combo'), uiComboTxt = $('comboTxt'), uiComboBar = $('comboBar'), elFlash = $('flash'),
@@ -118,7 +132,8 @@
   var miniBox = null, hudT = 0;
   var W = 0, H = 0, dpr = 1;
   var state = 'menu';
-  var time = 0, runT = 0, dist = 0, score = 0, gems = 0, lives = 3;
+  // v0.13.2：dmg = 车损值(0~CFG.DMG_MAX)，满 100 才掉 1 条命；dmgCool = 停止撞击后的修复倒计时
+  var time = 0, runT = 0, dist = 0, score = 0, gems = 0, lives = 3, dmg = 0, dmgCool = 0, smokeT = 0;
   var speed = 0, throttle = 0, lateral = 0, lateralVel = 0, carTilt = 0, steerVis = 0;
   var inv = 0, shake = 0, flash = 0, overT = 0;
   var aiCars = [], gemsArr = [], trees = [], bushes = [], rocks = [], parts = [], dashInst = null, dashData = [], cityBlocks = [];
@@ -129,7 +144,7 @@
   var CHASE = 0, COCKPIT = 1, viewMode = CHASE, viewBlend = 1;
   var gyroOn = false, gyroAvail = false, gyroTilt = new THREE.Vector2(0, 0);
   var trackSamples = [], totalLen = 0, trackCurve = null;
-  var curSeg = { pos: new THREE.Vector3(), yaw: 0, right: new THREE.Vector3(1, 0, 0) };
+  var curSeg = { pos: new THREE.Vector3(), yaw: 0, right: new THREE.Vector3(1, 0, 0), tan: new THREE.Vector3(0, 0, -1) };
 
   /* ======== 输入 ========
      v6.0 控制方案：
@@ -429,6 +444,25 @@
         life: 0.55 + Math.random() * 0.3
       });
     }
+  }
+
+  /* v0.13.2：车损冒烟。复用已有的 parts 粒子池，不新增任何渲染管线/后处理。
+     ⚠️ 关键：粒子必须跟随车速前进（vx/vz = 车速*0.9）。
+        最初版本让烟留在地面，结果车以 ~30m/s 前进、相机只在车后 8.6m，
+        存活 0.95s 的烟被拉开 28m → 全部落到相机背后，屏幕上一点都看不到。
+        现在烟以略低于车速的速度随车漂移，形成"贴车升腾"的可见烟柱（街机常见做法）。 */
+  function smoke(x, y, z, vx, vz) {
+    var m = new THREE.Mesh(new THREE.SphereGeometry(0.30 + Math.random() * 0.16, 6, 5),
+      new THREE.MeshBasicMaterial({ color: 0x8b939d, transparent: true, opacity: 0.55, depthWrite: false }));
+    m.position.set(x + (Math.random() - 0.5) * 0.7, y, z + (Math.random() - 0.5) * 0.7);
+    scene.add(m);
+    parts.push({
+      m: m, smoke: true, maxLife: 0.70,
+      vx: (vx || 0) + (Math.random() - 0.5) * 1.2, vy: 2.2 + Math.random() * 1.4,
+      vz: (vz || 0) + (Math.random() - 0.5) * 1.2,
+      g: 1.2,   // 正数 = 向上加速（热气上浮），区别于碎片的 -14 重力
+      life: 0.70
+    });
   }
 
   function flushPopups() {
@@ -1154,13 +1188,15 @@
   }
 
   function resetRun() {
-    runT = 0; dist = 0; score = 0; gems = 0; lives = 3;
+    runT = 0; dist = 0; score = 0; gems = 0; lives = CFG.LIVES;
+    dmg = 0; dmgCool = 0; smokeT = 0;          // v0.13.2：车损清零
     speed = 0; throttle = 0; lateral = 0; lateralVel = 0; carTilt = 0; steerVis = 0;
     inv = 0; shake = 0; flash = 0; comboN = 0; comboT = 0;
     if (playerGrp) { playerGrp.visible = carVisible(); playerGrp.rotation.set(0, 0, 0); }
     clearWorld();
     spawnWorld();
     updateLives();
+    __dmgShown = -1; updateDmg();
   }
 
   /* ======== 相机 ======== */
@@ -1242,7 +1278,9 @@
     } else {
       speed -= drag * dt;
     }
-    if (speed > CFG.MAX_SPEED) speed = CFG.MAX_SPEED;
+    // v0.13.2：车损越高极速越低（满损 -14%），给玩家"车被打残了"的直观反馈
+    var vMax = CFG.MAX_SPEED * (1 - CFG.DMG_SLOW * (dmg / CFG.DMG_MAX));
+    if (speed > vMax) speed = vMax;
     if (speed < CFG.REVERSE_MAX) speed = CFG.REVERSE_MAX;
     // 推进 s
     var advance = speed / 3.6 * dt; // km/h -> m/s
@@ -1516,15 +1554,45 @@
     if (inv < 0) inv = 0; if (shake < 0) shake = 0; if (flash < 0) flash = 0;
     elFlash.style.opacity = flash > 0 ? String(flash * 1.6) : '0';
 
+    // —— v0.13.2 车损：停撞 DMG_REPAIR_DELAY 秒后开始缓慢自动修复 ——
+    dmgCool -= dt;
+    if (dmgCool <= 0 && dmg > 0) {
+      dmg -= CFG.DMG_REPAIR * dt;
+      if (dmg < 0) dmg = 0;
+    }
+    updateDmg();
+    // 车损过高 → 引擎盖持续冒烟（复用已有粒子系统，不新增渲染管线）
+    if (dmg > CFG.DMG_SMOKE && playerGrp) {
+      smokeT -= dt;
+      if (smokeT <= 0) {
+        smokeT = 0.06;
+        var tg = curSeg.tan || { x: 0, z: -1 };
+        var fv = speed / 3.6 * 0.9;   // 烟以 90% 车速随车漂移：略滞后 → 有拖尾感，又不会跑出视野
+        // 从引擎盖上方 1.15m 冒出（车顶约 1.3m，烟必须在车体轮廓之上才看得见）
+        smoke(playerGrp.position.x + tg.x * 1.2, 1.15, playerGrp.position.z + tg.z * 1.2,
+              tg.x * fv, tg.z * fv);
+      }
+    } else { smokeT = 0; }
+
     // —— 粒子 ——
     for (var pi = parts.length - 1; pi >= 0; pi--) {
       var pt = parts[pi];
       pt.life -= dt;
       pt.m.position.x += pt.vx * dt;
-      pt.m.position.y += pt.vy * dt; pt.vy -= 14 * dt;
+      pt.m.position.y += pt.vy * dt;
+      pt.vy += (pt.g === undefined ? -14 : pt.g) * dt;   // v0.13.2：冒烟用正 g（上浮）而非碎片重力
       pt.m.position.z += pt.vz * dt;
       pt.m.rotation.x += dt * 8; pt.m.rotation.y += dt * 6;
-      if (pt.life <= 0) { scene.remove(pt.m); parts.splice(pi, 1); }
+      if (pt.smoke) {                                    // 冒烟：膨胀 + 随寿命淡出
+        pt.m.scale.multiplyScalar(1 + dt * 1.6);
+        pt.m.material.opacity = Math.max(0, pt.life / pt.maxLife) * 0.5;
+      }
+      if (pt.life <= 0) {
+        scene.remove(pt.m);
+        if (pt.m.geometry) pt.m.geometry.dispose();      // v0.13.2：补上泄漏的几何/材质释放
+        if (pt.m.material) pt.m.material.dispose();
+        parts.splice(pi, 1);
+      }
     }
 
     // —— HUD：仪表盘 / 路线图 / 里程 ——
@@ -1541,20 +1609,46 @@
     flushPopups();
   }
 
+  /* —— v0.13.2 碰撞 → 车损（不再"一撞就掉命"）——
+     伤害按「相对接近速度」分级：
+       纵向接近 = 玩家速度 − AI 速度（AI 世界速度为 speed * a.ratio）
+       横向接近 = 侧向速度（变道擦挂）
+     轻擦侧碰 ≈ 6~15，全速追尾 ≈ 20~45；累计满 CFG.DMG_MAX(100) 才扣 1 条命并清零。
+     ⚠️ 旧版 bug：这里只做了 lives -= 1，却从未调用 updateLives()，
+        导致心形 HUD 永远停在 3 颗（界面不随实际生命变化）。
+     现在改为在掉命时调用 updateLives(true) 触发跳动反馈。 */
   function onHit(a, cdx) {
-    lives -= 1;
+    var relKmh = Math.abs(speed - speed * (a && a.ratio ? a.ratio : 0.6)); // 纵向接近速度 km/h
+    var latKmh = Math.abs(lateralVel) * 3.6;                               // 横向接近速度 km/h
+    var impact = relKmh + latKmh * CFG.DMG_LAT;
+    var gain = clamp(CFG.DMG_MIN + impact * CFG.DMG_PER_KMH, CFG.DMG_MIN, CFG.DMG_MAXHIT);
+    var w = (gain - CFG.DMG_MIN) / (CFG.DMG_MAXHIT - CFG.DMG_MIN);         // 撞击强度 0~1
+    dmg += gain;
+    dmgCool = CFG.DMG_REPAIR_DELAY;      // 重置自动修复倒计时
+
     inv = CFG.INVINCIBLE;
-    shake = 9; flash = 0.42;
+    shake = Math.max(shake, 6 + 7 * w); flash = Math.max(flash, 0.30 + 0.30 * w);
     Audio.crash();
-    vib(70);
+    vib(60 + Math.round(60 * w));
     speed *= CFG.HIT_DROP;
     var dir = cdx >= 0 ? -1 : 1;
-    lateral += dir * 1.6;
+    lateral += dir * (1.0 + 1.2 * w);
     if (lateral > CFG.STEER_MAX_OFFSET) lateral = CFG.STEER_MAX_OFFSET;
     if (lateral < -CFG.STEER_MAX_OFFSET) lateral = -CFG.STEER_MAX_OFFSET;
     comboN = 0; comboT = 0;
-    burst(a.mesh.position.x, 0.7, a.mesh.position.z, 12);
-    if (lives <= 0) gameOver();
+    burst(a.mesh.position.x, 0.7, a.mesh.position.z, 10 + Math.round(8 * w));
+
+    // 车损满 → 掉 1 条命、车损清零（清零而非归零到溢出值，避免连续掉命）
+    if (dmg >= CFG.DMG_MAX) {
+      dmg -= CFG.DMG_MAX;
+      lives -= 1;
+      updateLives(true);
+      flash = Math.max(flash, 0.62); shake = Math.max(shake, 13);
+      vib(140);
+      updateDmg();
+      if (lives <= 0) { gameOver(); return; }
+    }
+    updateDmg();
   }
 
   function gameOver() {
@@ -1639,13 +1733,33 @@
   }
 
   /* ======== UI ======== */
-  function updateLives() {
+  // v0.13.2：生命值改用 CFG.LIVES；pulse=true 时心形跳动一下（掉命反馈）
+  function updateLives(pulse) {
+    if (!uiLives) return;
     uiLives.innerHTML = '';
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < CFG.LIVES; i++) {
       var h = document.createElement('div');
       h.className = 'heart' + (i < lives ? '' : ' off');
       uiLives.appendChild(h);
     }
+    if (pulse) {
+      var hs = uiLives.children;
+      for (var k = 0; k < hs.length; k++) {
+        hs[k].classList.add('hit');
+        (function (el) { setTimeout(function () { el.classList.remove('hit'); }, 460); })(hs[k]);
+      }
+    }
+  }
+
+  // v0.13.2：车损条。只在百分比真正变化时写 DOM，避免每帧触发重排
+  var __dmgShown = -1;
+  function updateDmg() {
+    if (!uiDmgFill) return;
+    var pct = Math.round(clamp(dmg, 0, CFG.DMG_MAX) / CFG.DMG_MAX * 100);
+    if (pct === __dmgShown) return;
+    __dmgShown = pct;
+    uiDmgFill.style.width = pct + '%';
+    if (uiDmgWrap) uiDmgWrap.className = (pct >= CFG.DMG_SMOKE) ? 'danger' : '';
   }
 
   function startRun() {
@@ -1764,6 +1878,9 @@
       if (/[?&]autostart=1\b/.test(location.search)) { Audio.ensure(); startRun(); }  // 同步启动（headless 截图验证用；60ms 定时器在 headless 会被节流）
       // 调试：?gas=1 持续油门（配合 autostart 做自动化画面验证）
       if (/[?&]gas=1\b/.test(location.search)) input.gas = true;
+      // 调试：?dmg=N 预设车损值（headless 定点验证 车损条/冒烟/danger 红条 状态）
+      var dm0 = /[?&]dmg=(\d+)/.exec(location.search);
+      if (dm0) { dmg = clamp(parseInt(dm0[1], 10) || 0, 0, CFG.DMG_MAX); __dmgShown = -1; updateDmg(); }
       // 调试：?ff=N 快进 N 秒。无头 Chrome 在页面 load 完成时立即截图（拿不到"运行中"的画面），
       //       这里同步跑 N*60 帧把车开到中途，用于离线验证 速度/里程/仪表盘/路线图/转弯 是否真的动。
       var ffm = /[?&]ff=(\d+)/.exec(location.search);

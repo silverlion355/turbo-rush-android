@@ -100,12 +100,27 @@ window.addEventListener('unhandledrejection', function (e) {
   #combo .cm { font-size:19px; font-weight:900; color:#ffd23f; text-shadow:0 0 14px rgba(255,200,60,.8); letter-spacing:1px; }
   #combo .bar { width:140px; height:4px; border-radius:2px; background:rgba(255,255,255,.16); margin:4px auto 0; overflow:hidden; }
   #combo .bar i { display:block; height:100%; width:100%; background:linear-gradient(90deg,#ffd23f,#ff7a2e); }
-  /* —— 生命值 —— */
-  #lives { position:absolute; right:12px; bottom:34px; display:flex; gap:6px;
-           filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); right:calc(12px + env(safe-area-inset-right)); }
+  /* —— 生命值 + 车损 ——
+     v0.13.2：原 #lives 在 right:12px;bottom:34px，正好压在右下角 #mapBox 路线图上；
+     现移到左上角计分框下方，并在其下新增"车损"条。 */
+  #lives { position:absolute; top:68px; left:calc(12px + env(safe-area-inset-left));
+           display:flex; gap:6px; filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
   .heart { width:18px; height:18px; transform:rotate(45deg); border-radius:4px; background:linear-gradient(135deg,#ff5a6e,#ff2d55);
            box-shadow:0 0 8px rgba(255,45,85,.6); }
   .heart.off { background:#263040; box-shadow:none; }
+  .heart.hit { animation:heartHit .45s ease-out; }
+  @keyframes heartHit { 0%{transform:rotate(45deg) scale(1.5);} 100%{transform:rotate(45deg) scale(1);} }
+  #dmgWrap { position:absolute; top:96px; left:calc(12px + env(safe-area-inset-left)); width:108px;
+             pointer-events:none; }
+  #dmgWrap .lb { font-size:9px; letter-spacing:2px; color:#cbd6e6; opacity:.85; margin-bottom:3px;
+                 text-shadow:0 1px 3px rgba(0,0,0,.7); }
+  #dmgBar { height:7px; border-radius:4px; background:rgba(8,12,24,.62);
+            border:1px solid rgba(255,255,255,.16); overflow:hidden; }
+  #dmgBar i { display:block; height:100%; width:0%; border-radius:3px;
+              background:linear-gradient(90deg,#4ce08a,#ffd23f 55%,#ff4b3a);
+              transition:width .10s linear; }
+  #dmgWrap.danger .lb { color:#ff8a8a; }
+  #dmgWrap.danger #dmgBar { box-shadow:0 0 10px rgba(255,60,50,.75); }
   /* —— 飘分 —— */
   .pop { position:absolute; transform:translate(-50%,-50%); font-weight:900; font-size:17px; color:#ffe25a;
          text-shadow:0 1px 6px rgba(0,0,0,.7); pointer-events:none; z-index:6; animation:popRise .9s ease-out forwards; }
@@ -142,6 +157,7 @@ window.addEventListener('unhandledrejection', function (e) {
   #hud:not(.playing) #mapBox,
   #hud:not(.playing) #combo,
   #hud:not(.playing) #lives,
+  #hud:not(.playing) #dmgWrap,
   #hud:not(.playing) #viewBadge { display:none; }
   #overTitle { font-size:25px; font-weight:900; color:#ff5a6e; letter-spacing:2px; }
   #overStats { font-size:13px; color:#cbd6e6; line-height:2.1; }
@@ -190,7 +206,7 @@ window.addEventListener('unhandledrejection', function (e) {
     #topBtns { top:56px; flex-direction:row; align-items:center; }
     #btnSound, #btnView, #btnGyro { height:30px; font-size:11px; border-radius:9px; }
     #btnSound { width:30px; font-size:14px; }
-    #lives { bottom:28px; }
+    /* v0.13.2：#lives / #dmgWrap 改用左上角 top 定位，横屏沿用基准值即可，不再覆盖 bottom */
     #gauge { width:96px; height:96px; bottom:6px; }
     #pedals { left:calc(110px + env(safe-area-inset-left)); bottom:6px; gap:10px; }
     .pedal { width:62px; height:62px; font-size:12px; }
@@ -225,6 +241,7 @@ window.addEventListener('unhandledrejection', function (e) {
     <div id="mile">0 m</div>
   </div>
   <div id="lives"></div>
+  <div id="dmgWrap"><div class="lb">车损</div><div id="dmgBar"><i id="dmgFill"></i></div></div>
 </div>
 <div id="flash"></div>
 
@@ -239,9 +256,9 @@ window.addEventListener('unhandledrejection', function (e) {
     <span>&#128506; 右下 <b>路线图</b> 实时显示位置与里程</span><br>
     <span>&#128268; 点右上 <b>陀螺仪</b> 可用机身倾斜调整视角 · <b>C</b> 切换车内/车后视角</span><br>
     <span>&#9000; 键盘：←→/A D 转向 · ↑油门 · ↓刹车</span><br>
-    <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞车损失生命</span>
+    <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞击累积<b>车损</b>，车损满 100 才损失 1 条生命</span>
   </div>
-  <div class="ver">v0.13.1</div>
+  <div class="ver">v0.13.2</div>
 </div>
 
 <!-- 结束 -->
