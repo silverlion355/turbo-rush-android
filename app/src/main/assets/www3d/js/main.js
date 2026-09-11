@@ -40,6 +40,13 @@
     STEER_RATE: 9.2,                    // v0.13.1：6.2 → 9.2（转弯明显更跟手）
     STEER_LAG: 14,                      // v0.13.1：横向速度跟随系数 9 → 14（减少"打舵后要等一下"的迟滞）
     STEER_SWIPE: 0.10, STEER_SWIPE_MIN: 60, // v0.13.1：滑动 0.16 屏宽打满 → 0.10 屏宽（且不低于 60px）
+    /* v0.13.3 转向死区：归一化位移（-1~1，1 = 打满）小于此值一律当 0。
+       手指按住不放时的生理抖动约 3~8px，在 880 宽手机上相当于归一化 0.04~0.09，
+       旧版会被当成"轻微转向"→ 车自己慢慢漂向一边（玩家以为是"跑偏"）。
+       注意：死区【不是】简单截断，而是把剩余行程重新拉伸回 0~1
+       （见 steerDead()），所以打满所需滑动距离不变、中段响应反而更跟手，
+       不会抵消 v0.13.1 那次"提高转向灵敏度"的改动。 */
+    STEER_DEAD: 0.07,
     FOV: 64, CAM_DIST: 8.6, CAM_H: 4.6, CAM_LOOK_Y: 1.1, CAM_LOOK_AHEAD: 24,
     COCKPIT_OFFSET: new THREE.Vector3(0.30, 0.98, 0.34),   // v6.0：0.74 → 0.98（抬到仪表台上方、挡风下沿之上，越过引擎盖看清路面）
     INVINCIBLE: 2.6, HIT_DROP: 0.62,
@@ -58,10 +65,40 @@
     DMG_SLOW: 0.14,         // 满损时极速打 86 折
     GEM_SCORE: 60, GEM_COMBO_WIN: 1.8,
     TRACK_N: 600, LOOP_KM_H: 200,
-    FOG_NEAR: 120, FOG_FAR: 640, FOG_COLOR: 0xcfe4f0,       // v6.0：远景更通透
+    /* —— v0.13.3 大气（C 包 / 第 1 步：雾 + 天空）——
+       ⚠️ 核心约束：雾色必须【等于】天空地平线那一圈的颜色。
+       否则远处的草地/路面被雾染成雾色后，会在地平线处与天空撞出一条
+       明显的浅色横带（旧版雾色 #cfe4f0 偏暗偏蓝、天空地平线 #b6daf4 偏亮，
+       两者不同 → 远处能看出"一条带子"）。
+       FOG_FAR 同时放大：旧 640m 意味着 640m 外全是纯雾色（一块死板的色板），
+       现在 980m 才到纯雾色，地面是"渐隐"而不是"戛然而止"。 */
+    FOG_NEAR: 130, FOG_FAR: 980, FOG_COLOR: 0xd8e9f6,
+    SKY_HORIZON: 0xd8e9f6,              // ← 必须与 FOG_COLOR 同色（改一处请改两处）
+    SKY_ZENITH: 0x1a5cb0,               // 天顶深蓝（渐变起点）
+    CLOUD_N: 14,                        // 云朵数量（?hide=cloud 可排除）
+    /* —— v0.13.3 灯光总曝光补偿 ——
+       修好贴图色彩空间后，所有"贴图面"（草地/路面/楼宇）不再被多提亮一次，
+       于是暴露出一个一直存在、只是被掩盖的问题：**灯光本身是偏暗的**。
+       实测：朝上的表面最终亮度只有自身反照率的 ~0.72 倍，
+       也就是沥青贴图设计值 #35383e 实际只渲成 #1d1f24（近黑）。
+       注意车漆用的是 Color（一直转换正确），所以旧版是
+       "车颜色对、场景偏亮" —— 两个错误互相抵消，看起来才"正常"。
+       现在把两处都修正，用同一个曝光系数把灯光抬到
+       "表面渲染值 ≈ 反照率设计值"（草地 #5f9d47、沥青 #35383e、线 #eef2f7）。
+       1.5 是实测得出的档位：草地渲成 #5c9645（设计值 #5f9d47），
+       即"画成什么色就显示什么色"。
+       只乘一个标量、不改变各光源之间的比例，也不动颜色/天空。
+       调试：?exp=N 可临时覆盖（不填 = 用 CFG.EXPOSURE）。 */
+    EXPOSURE: 1.5,
     AI_SPEED_MIN: 0.42, AI_SPEED_MAX: 0.72,
     GYRO_YAW_RANGE: 0.55, GYRO_PITCH_RANGE: 0.30,
-    SKY_R: 800, GROUND_R: 1100, BACKDROP_R: 760, BACKDROP_H: 320
+    /* v0.13.3：GROUND_R 1100 → 2200。
+       旧值下草地面片是 ±1100m 的正方形；相机最远会离原点约 300m，
+       于是朝原点那一侧的草地边缘只有 800m —— 而 FOG_FAR = 980m，
+       意思是"还没完全化进雾里，地面就没了"，地平线处会露出一条淡绿色的边。
+       现在边缘最近也有 1900m，永远晚于 FOG_FAR 被雾吃掉，接缝彻底消失。
+       面片只有 2 个三角形，放大不增加任何开销。 */
+    SKY_R: 800, GROUND_R: 2200, BACKDROP_R: 760, BACKDROP_H: 320
   };
 
   function $(id) { return document.getElementById(id); }
@@ -74,6 +111,17 @@
   }
   window.addEventListener('error', function (e) { if (e && e.message) showFatal(e.message); });
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  /* v0.13.3：转向死区（带重新拉伸）。
+     旧写法（直接 clamp 到 ±1）在手指微抖时会输出 0.05 之类的微小转向量，
+     车会缓慢漂向一边。这里在死区内归零，死区外把 [dead,1] 线性映射回 [0,1]，
+     所以"打满仍需同样滑动距离"，只是把死区那段无效行程删掉了。 */
+  function steerDead(v) {
+    var a = v < 0 ? -v : v;
+    if (a <= CFG.STEER_DEAD) return 0;
+    var y = (a - CFG.STEER_DEAD) / (1 - CFG.STEER_DEAD);
+    if (y > 1) y = 1;
+    return v < 0 ? -y : y;
+  }
   function lerp(a, b, t) { return a + (b - a) * t; }
   function sstep(t) { return t * t * (3 - 2 * t); }
   function vib(ms) { try { if (window.AndroidBridge && typeof window.AndroidBridge.vibrate === 'function') window.AndroidBridge.vibrate(ms); } catch (e) { } }
@@ -139,6 +187,8 @@
   var aiCars = [], gemsArr = [], trees = [], bushes = [], rocks = [], parts = [], dashInst = null, dashData = [], cityBlocks = [];
   var playerGrp = null, seatCam = null, wheelParts = [], frontWheelGrps = [], wheelSpin = [];
   var clouds = [];
+  // v0.13.3：天空组件（天空球 + 太阳光晕 + 云）—— 整体跟随相机，见 updateSky()
+  var skyGrp = null;
   var comboN = 0, comboT = 0, pendingPop = [];
   var lastTm = 0, camFov = CFG.FOV, camLookYaw = 0, camLookPitch = 0;
   var CHASE = 0, COCKPIT = 1, viewMode = CHASE, viewBlend = 1;
@@ -154,6 +204,7 @@
      ==================================== */
   var input = { kLeft: 0, kRight: 0, kUp: 0, kDown: 0, drag: null, gas: false, brake: false, swipeGas: false, swipeBrake: false };
   var steerTouchId = null;   // 正在负责"转向滑动"的那根手指的 identifier
+  var deadOff = /[?&]dead=0\b/.test(location.search);   // 调试：?dead=0 关闭转向死区（A/B 对比用）
 
   function bindPedal(el, key, cls) {
     if (!el) return;
@@ -193,7 +244,9 @@
     for (var i = 0; i < e.touches.length; i++) if (e.touches[i].identifier === steerTouchId) t = e.touches[i];
     if (!t) return;
     // 相对起点位移 → 比例转向：滑动约 1/10 屏宽即打满（v0.13.1：原 1/6 偏钝）
-    input.drag.lx = clamp((t.clientX - input.drag.sx) / Math.max(W * CFG.STEER_SWIPE, CFG.STEER_SWIPE_MIN), -1, 1);
+    var rawLx = clamp((t.clientX - input.drag.sx) / Math.max(W * CFG.STEER_SWIPE, CFG.STEER_SWIPE_MIN), -1, 1);
+    // v0.13.3：先过转向死区（去手指抖动），再做比例转向
+    input.drag.lx = deadOff ? rawLx : steerDead(rawLx);
     // 顺手支持：右侧上滑加油 / 下滑刹车（保留旧习惯，与踏板等效、独立于踏板）
     var dyFromBase = t.clientY - input.drag.sy;
     if (Math.abs(dyFromBase) > 26) {
@@ -272,6 +325,11 @@
   /* ======== 视角 ======== */
   function cycleView() { viewMode = 1 - viewMode; setViewUI(); }
   var carHiddenByDebug = false, forceHideCar = false;
+  /* v0.13.3 调试开关（C 包 / 天空步骤）：
+     ?hide=cloud 排除云层（用来单独确认天空渐变本身是对的，而不是被云洗白）
+     ?hide=sky   排除天空球（露出 scene.background，判断地平线色是否吻合） */
+  var hideCloud = /[?&]hide=cloud\b/.test(location.search);
+  var hideSky = /[?&]hide=sky\b/.test(location.search);
   // 车身可见性统一入口：座舱视角（仅比赛中）/ 调试隐藏 时不可见；无敌闪烁在主循环里叠加
   // 注意：菜单/结算界面仍显示车身（镜头绕车动画），所以座舱隐藏只在 state==='run' 时生效
   function carVisible() { return !carHiddenByDebug && !(forceHideCar && state === 'run'); }
@@ -556,6 +614,36 @@
     return { pos: pos, yaw: yaw, right: right, tan: b.tan.clone() };
   }
 
+  /* ======== v0.13.3 色彩空间修复（C 包 / 第 1 步的根因）========
+     【问题】画面整体"发灰、发白、不高级"，尤其草地和天空像蒙了一层白纱。
+     【根因】CanvasTexture 没有声明 colorSpace。
+       本工程用的是 three r15x（UMD 版），其中：
+         · ColorManagement.enabled 默认 = true（实测反编译确认 `enabled:!0`）
+         · 渲染器 outputColorSpace 默认 = SRGBColorSpace
+         · 但 Texture.colorSpace 默认 = NoColorSpace（= 按"线性值"采样！）
+       于是：画布里按 sRGB 写好的颜色 → 被当成线性值送进着色器 →
+       输出时又被编码一次 sRGB → 相当于**多做了一次提亮**。
+       实测：草地基色 #5f9d47 实际渲染成 #a5cd91（惨白黄绿）；
+             天空 v=0.40 处的 #82bdea 渲染成 #bcdef6（几乎白掉）。
+     【铁证】同一盏灯下，车漆用的是 `new THREE.Color(0xd40000)`（Color 走
+       ColorManagement，转换正确）→ 车是正常的深红；而草地/路面/楼宇走贴图
+       → 明显偏白。同样的光、同样的材质模型，颜色却差一档，只能是贴图解码错了。
+     【修法】所有当"颜色"用的 CanvasTexture 显式标 sRGB，让采样时先解码回线性，
+       输出再编码回 sRGB → 一来一回正好等于画布里写的颜色（渲染值 = 设计值）。
+     注意：`scene.background = new THREE.Color(hex)` 本来就正确（实测
+       0xd8e9f6 渲染出来逐位等于 #d8e9f6），所以本修复只动贴图，不动灯光/颜色常量。
+     ?cs=legacy 调试开关：退回旧行为，用于 A/B 对比。
+     ============================================================ */
+  var csLegacy = /[?&]cs=legacy\b/.test(location.search);
+  function srgb(t) {
+    try {
+      if (!csLegacy && t && THREE.SRGBColorSpace && typeof t.colorSpace !== 'undefined') {
+        t.colorSpace = THREE.SRGBColorSpace;
+      }
+    } catch (e) { /* 老版本 three 没有 colorSpace，忽略 */ }
+    return t;
+  }
+
   /* ======== WebGL 渲染器：多级降级创建 ========
      部分 Android WebView / 老 GPU 对 powerPreference:'high-performance'、
      antialias 支持不佳，会直接创建失败 → 表现为整屏黑。逐级退回最保守配置。 */
@@ -581,7 +669,7 @@
   /* ======== 环境构建（纯程序化：几何 + 纯色，不依赖任何贴图） ======== */
   function buildScene() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xbfe0ff);
+    scene.background = new THREE.Color(CFG.SKY_HORIZON);
     scene.fog = new THREE.Fog(CFG.FOG_COLOR, CFG.FOG_NEAR, CFG.FOG_FAR);
 
     camera = new THREE.PerspectiveCamera(CFG.FOV, W / H, 0.1, 2400);
@@ -600,7 +688,7 @@
       gr.addColorStop(0, '#b9d6ff'); gr.addColorStop(0.42, '#dcedff'); gr.addColorStop(0.5, '#f6f9fd');
       gr.addColorStop(0.54, '#c8d9b2'); gr.addColorStop(0.75, '#57794b'); gr.addColorStop(1, '#33503a');
       cx.fillStyle = gr; cx.fillRect(0, 0, 64, 32);
-      var envTex = new THREE.CanvasTexture(cv); envTex.mapping = THREE.EquirectangularReflectionMapping;
+      var envTex = srgb(new THREE.CanvasTexture(cv)); envTex.mapping = THREE.EquirectangularReflectionMapping;
       var pmrem = new THREE.PMREMGenerator(renderer);
       var rt = pmrem.fromEquirectangular(envTex); scene.environment = rt.texture;
       envTex.dispose(); pmrem.dispose();
@@ -612,26 +700,51 @@
     try { renderer.setRenderTarget(null); } catch (e2) {}
 
     // 灯光
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    var sun = new THREE.DirectionalLight(0xfff2d8, 1.15); sun.position.set(80, 120, 40); scene.add(sun);
-    var fill = new THREE.DirectionalLight(0x9fc8ff, 0.35); fill.position.set(-60, 30, -50); scene.add(fill);
-    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x3a4a33, 0.55));
+    /* v0.13.3：整套灯光乘同一个曝光系数 EXPOSURE（见 CFG 注释）。
+       只缩放总强度、不改变比例，所以原本的光照关系完全保留。
+       天空球/云/太阳光晕用的是 Basic/Sprite（不受灯光影响），
+       所以抬曝光只会把"被照亮的实体"提到正常亮度，天空保持设计色。 */
+    var EO = /[?&]exp=([\d.]+)/.exec(location.search);
+    var EXP = EO ? (parseFloat(EO[1]) || 1) : CFG.EXPOSURE;
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55 * EXP));
+    var sun = new THREE.DirectionalLight(0xfff2d8, 1.15 * EXP); sun.position.set(80, 120, 40); scene.add(sun);
+    var fill = new THREE.DirectionalLight(0x9fc8ff, 0.35 * EXP); fill.position.set(-60, 30, -50); scene.add(fill);
+    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x3a4a33, 0.55 * EXP));
 
-    /* —— v6.0 天空：渐变贴图天空球（纯色 → 有层次的渐变） —— */
+    /* —— v0.13.3 天空（C 包 / 第 1 步）——
+       ⚠️ 关键修复：整个天空组件（天空球 + 太阳光晕 + 云）必须【跟随相机】。
+         旧版把天空球写死在原点 (0,-30,0)，而赛道环直径数百米：
+         车一开远，相机就偏离球心几百米，看到的只是球面上很小的一块，
+         渐变被彻底"拉平"——实测帧内天空色差只有 #a3d1f1 → #acd5f3
+         （ΔRGB ≈ 7/3/1，肉眼完全看不出层次，天空就是一块死板的浅蓝）。
+         改为每帧把 skyGrp 对齐到相机（见 updateSky()），球心 = 视点，
+         于是球面 UV 真正等于「仰角」，地平线永远精确落在 v=0.5。
+       画布 v 轴约定：0 = 天顶，0.5 = 地平线，1 = 对地（被草地挡住）。
+       ============================================================ */
+    skyGrp = new THREE.Group();
+    skyGrp.name = 'sky';
+    scene.add(skyGrp);
+
     var skyCv = document.createElement('canvas'); skyCv.width = 8; skyCv.height = 256;
     var sx = skyCv.getContext('2d');
     var sg = sx.createLinearGradient(0, 0, 0, 256);
-    sg.addColorStop(0, '#2b6fc4'); sg.addColorStop(0.32, '#5fa4e2');
-    sg.addColorStop(0.60, '#a9d3f2'); sg.addColorStop(0.80, '#dcecf9'); sg.addColorStop(1, '#e9f3f8');
+    sg.addColorStop(0.00, '#1a5cb0');   // 天顶：深蓝
+    sg.addColorStop(0.20, '#2f7ac8');
+    sg.addColorStop(0.32, '#57a0dd');   // ≈ 画面上沿（仰角 ~30°）
+    sg.addColorStop(0.42, '#8dc4ed');
+    sg.addColorStop(0.47, '#bdddf3');   // 地平线雾带外沿
+    sg.addColorStop(0.50, '#d8e9f6');   // ← 地平线 = 雾色（须与 CFG.FOG_COLOR 同色）
+    sg.addColorStop(0.54, '#cde1ef');
+    sg.addColorStop(1.00, '#aebfcd');   // 对地：略偏灰，避免抬头看到刺眼的亮底
     sx.fillStyle = sg; sx.fillRect(0, 0, 8, 256);
-    var skyTex = new THREE.CanvasTexture(skyCv);
+    var skyTex = srgb(new THREE.CanvasTexture(skyCv));
     var sky = new THREE.Mesh(
-      new THREE.SphereGeometry(CFG.SKY_R, 24, 16),
+      new THREE.SphereGeometry(CFG.SKY_R, 32, 20),
       new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false })
     );
-    sky.position.y = -30;
+    sky.name = 'skyDome';
     sky.renderOrder = -1000;
-    scene.add(sky);
+    if (!hideSky) skyGrp.add(sky);   // 位置由 updateSky() 每帧对齐相机
 
     /* —— v6.0 太阳：径向渐变光晕 Sprite（与主平行光同方向） —— */
     try {
@@ -642,14 +755,18 @@
       rg.addColorStop(0.40, 'rgba(255,230,168,.34)'); rg.addColorStop(1, 'rgba(255,222,150,0)');
       ux.fillStyle = rg; ux.beginPath(); ux.arc(64, 64, 64, 0, 6.284); ux.fill();
       var sunSpr = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: new THREE.CanvasTexture(sunCv), fog: false, depthWrite: false, transparent: true
+        map: srgb(new THREE.CanvasTexture(sunCv)), fog: false, depthWrite: false, transparent: true
       }));
       sunSpr.scale.set(210, 210, 1);
       sunSpr.position.copy(new THREE.Vector3(80, 120, 40).normalize().multiplyScalar(CFG.SKY_R * 0.88));
-      scene.add(sunSpr);
+      skyGrp.add(sunSpr);   // v0.13.3：挂到天空组件（随相机，方向保持不变）
     } catch (eSun) { /* 忽略 */ }
 
-    /* —— v6.0 云层：柔和云朵 Sprite 缓慢漂移 —— */
+    /* —— v6.0 云层：柔和云朵 Sprite 缓慢漂移（v0.13.3：挂天空组件并推远）——
+       旧版云挂在世界原点、半径 150~670；车开远后云会被"甩在后面"并从
+       视野左侧飞过，看起来像贴脸飘过的棉花。现在随相机一起移动（即
+       "无穷远的云层"），并把半径推到 300~700、高度 150~380，
+       保证整朵云都在天空球（R=800）内部。 */
     try {
       var clCv = document.createElement('canvas'); clCv.width = 256; clCv.height = 128;
       var lx = clCv.getContext('2d');
@@ -659,16 +776,16 @@
         cg2.addColorStop(0, 'rgba(255,255,255,.9)'); cg2.addColorStop(1, 'rgba(255,255,255,0)');
         lx.fillStyle = cg2; lx.beginPath(); lx.arc(cx2, cy2, rr2, 0, 6.284); lx.fill();
       }
-      var clTex = new THREE.CanvasTexture(clCv);
-      for (var ci3 = 0; ci3 < 14; ci3++) {
+      var clTex = srgb(new THREE.CanvasTexture(clCv));
+      for (var ci3 = 0; !hideCloud && ci3 < CFG.CLOUD_N; ci3++) {
         var spr = new THREE.Sprite(new THREE.SpriteMaterial({
-          map: clTex, fog: false, depthWrite: false, transparent: true, opacity: 0.75 + Math.random() * 0.2
+          map: clTex, fog: false, depthWrite: false, transparent: true, opacity: 0.62 + Math.random() * 0.24
         }));
-        var ang2 = Math.random() * 6.283, rad2 = 150 + Math.random() * 520;
-        spr.position.set(Math.cos(ang2) * rad2, 120 + Math.random() * 120, Math.sin(ang2) * rad2);
-        var sc = 150 + Math.random() * 240;
+        var ang2 = Math.random() * 6.283, rad2 = 300 + Math.random() * 400;
+        spr.position.set(Math.cos(ang2) * rad2, 150 + Math.random() * 230, Math.sin(ang2) * rad2);
+        var sc = 200 + Math.random() * 300;
         spr.scale.set(sc, sc * 0.48, 1);
-        scene.add(spr); clouds.push(spr);
+        skyGrp.add(spr); clouds.push(spr);
       }
     } catch (eCl) { /* 忽略 */ }
 
@@ -681,9 +798,12 @@
       gx.fillStyle = gv < 0.45 ? 'rgba(74,128,56,.45)' : (gv < 0.78 ? 'rgba(112,172,82,.45)' : 'rgba(150,196,104,.32)');
       gx.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 2, 1 + Math.random() * 3);
     }
-    var grTex = new THREE.CanvasTexture(grCv);
+    var grTex = srgb(new THREE.CanvasTexture(grCv));
     grTex.wrapS = grTex.wrapT = THREE.RepeatWrapping;
-    grTex.repeat.set(140, 140);
+    /* v0.13.3：贴图平铺密度按"每格 15.7m"固定推导（原来硬编码 140 次，
+       配合 GROUND_R 1100 正好 15.7m/格）。这样以后改 GROUND_R 草地颗粒
+       大小也不会跟着变。 */
+    grTex.repeat.set(CFG.GROUND_R * 2 / 15.7, CFG.GROUND_R * 2 / 15.7);
     var ground = new THREE.Mesh(
       new THREE.PlaneGeometry(CFG.GROUND_R * 2, CFG.GROUND_R * 2),
       new THREE.MeshLambertMaterial({ color: 0xffffff, map: grTex })
@@ -809,7 +929,7 @@
     cx.fillRect(TW * 0.25 - dW / 2, 0, dW, dashH);
     cx.fillRect(TW * 0.75 - dW / 2, 0, dW, dashH);
 
-    var tex = new THREE.CanvasTexture(cv);
+    var tex = srgb(new THREE.CanvasTexture(cv));   // v0.13.3：沥青贴图同样是 sRGB 颜色数据
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.RepeatWrapping;
     try {
@@ -980,7 +1100,7 @@
         x.fillRect(q * 16 + 3.5, r * 16 + 4, 9, 9);
       }
     }
-    var t = new THREE.CanvasTexture(c);
+    var t = srgb(new THREE.CanvasTexture(c));      // v0.13.3：窗户贴图（唯一未标记的颜色贴图，会偏白）
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     return t;
   }
@@ -1598,11 +1718,11 @@
     // —— HUD：仪表盘 / 路线图 / 里程 ——
     updateHud(dt);
     Audio.engineSpeed(ratio / 1.42 + 0.08);
-    // —— 云层缓慢漂移 ——
+    // —— 云层缓慢漂移（v0.13.3：范围与新的云分布半径 300~700 对齐） ——
     for (var ci = 0; ci < clouds.length; ci++) {
       var cl = clouds[ci];
       cl.position.x += 2.2 * dt;
-      if (cl.position.x > 760) cl.position.x = -760;
+      if (cl.position.x > 700) cl.position.x = -700;
     }
 
     updateCamera(dt);
@@ -1721,9 +1841,23 @@
     }
   }
 
+  /* —— v0.13.3 天空跟随相机（C 包 / 第 1 步的核心修复）——
+     把天空组件对齐到相机，等价于"无穷远的天空盒"：
+       · 天空球球心 = 视点 → 球面 UV 就等于仰角，地平线永远在 v=0.5
+       · 太阳/云的方向保持不变（不会因为车往前开就"飘到身后"）
+     放在 render() 里而不是 update() 里：菜单态（相机绕原点缓慢环绕）
+     与运行态都能生效，且保证在相机矩阵最终确定之后才对齐。
+     ?sky=static 调试：退回旧行为（固定在世界原点），用于 A/B 对比。 */
+  var skyStatic = /[?&]sky=static\b/.test(location.search);
+  function updateSky() {
+    if (!skyGrp || skyStatic) return;
+    skyGrp.position.copy(camera.position);
+  }
+
   /* 统一渲染出口：异常不吞掉，写到屏幕诊断条 */
   function render() {
     try {
+      updateSky();
       renderer.render(scene, camera);
       if (!__rendered) {
         __rendered = 1;
