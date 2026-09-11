@@ -77,21 +77,20 @@ window.addEventListener('unhandledrejection', function (e) {
   .score-box .label { font-size:10px; letter-spacing:2px; opacity:.65; }
   .score-box .value { font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
   #score { color:#ffd23f; }
-  /* 功能按钮：统一放进弹性容器（横屏横排 / 竖屏竖排）——结构上不可能再重叠。
-     旧写法给三个按钮各自写死 right 值但共用 top，横屏时算出来必然互相压住。 */
+  /* 功能按钮：统一由 #topBtns 弹性容器排布（竖屏竖排 / 横屏横排，间隔 8px，永不重叠）
+     —— 旧版三个按钮各自 absolute 定位，横屏下 btnSound/btnGyro 都写 right:12px;top:56px
+        直接完全重叠，btnView 也与 btnGyro 横向压叠 46px。 */
   #topBtns { position:absolute; top:60px; right:calc(12px + env(safe-area-inset-right));
-             display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
-  #btnSound, #btnView, #btnGyro, #btnSet { pointer-events:auto; height:34px; border-radius:11px;
-        font-size:12px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; flex:none; }
+             display:flex; flex-direction:column; align-items:flex-end; gap:8px; pointer-events:none; }
+  #btnSound, #btnView, #btnGyro { position:relative; pointer-events:auto; height:34px; border-radius:11px;
+        font-size:12px; font-weight:700; letter-spacing:1px; cursor:pointer; white-space:nowrap; flex:0 0 auto; }
   #btnSound { background:rgba(8,12,24,.5); border:1px solid rgba(255,255,255,.15);
-              color:#fff; width:34px; padding:0; font-size:16px; }
+              color:#fff; width:34px; font-size:16px; }
   #btnView { background:rgba(8,12,24,.6); border:1px solid rgba(255,255,255,.18);
              color:#cfe6ff; padding:0 12px; }
   #btnView.hidden { display:none; }
   #btnGyro { background:rgba(8,12,24,.6); border:1px solid rgba(127,240,192,.35);
              color:#7ff0c0; padding:0 12px; }
-  #btnSet { background:rgba(8,12,24,.6); border:1px solid rgba(255,255,255,.18);
-            color:#cfd8e8; padding:0 12px; }
   #viewBadge { position:absolute; left:50%; top:10px; transform:translateX(-50%); background:rgba(8,12,24,.5);
                border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:3px 13px; font-size:11px;
                letter-spacing:2px; color:#9fd0ff; }
@@ -101,16 +100,12 @@ window.addEventListener('unhandledrejection', function (e) {
   #combo .cm { font-size:19px; font-weight:900; color:#ffd23f; text-shadow:0 0 14px rgba(255,200,60,.8); letter-spacing:1px; }
   #combo .bar { width:140px; height:4px; border-radius:2px; background:rgba(255,255,255,.16); margin:4px auto 0; overflow:hidden; }
   #combo .bar i { display:block; height:100%; width:100%; background:linear-gradient(90deg,#ffd23f,#ff7a2e); }
-  /* —— 生命值：改到左上（得分正下方）。原来放右下会和路线图/里程叠在一起 —— */
-  #lives { position:absolute; left:calc(12px + env(safe-area-inset-left)); top:62px; display:flex; gap:6px;
-           filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+  /* —— 生命值 —— */
+  #lives { position:absolute; right:12px; bottom:34px; display:flex; gap:6px;
+           filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); right:calc(12px + env(safe-area-inset-right)); }
   .heart { width:18px; height:18px; transform:rotate(45deg); border-radius:4px; background:linear-gradient(135deg,#ff5a6e,#ff2d55);
            box-shadow:0 0 8px rgba(255,45,85,.6); }
   .heart.off { background:#263040; box-shadow:none; }
-  /* 撞击累积条：撞车不再立刻掉一颗心，攒满一格才扣 —— 这就是"不是直接掉命" */
-  #dmgBar { position:absolute; left:calc(12px + env(safe-area-inset-left)); top:94px; width:104px; height:5px;
-            border-radius:3px; background:rgba(255,255,255,.14); overflow:hidden; }
-  #dmgBar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,#ffd23f,#ff5a6e); }
   /* —— 飘分 —— */
   .pop { position:absolute; transform:translate(-50%,-50%); font-weight:900; font-size:17px; color:#ffe25a;
          text-shadow:0 1px 6px rgba(0,0,0,.7); pointer-events:none; z-index:6; animation:popRise .9s ease-out forwards; }
@@ -147,17 +142,10 @@ window.addEventListener('unhandledrejection', function (e) {
   #hud:not(.playing) #mapBox,
   #hud:not(.playing) #combo,
   #hud:not(.playing) #lives,
-  #hud:not(.playing) #dmgBar,
-  #hud:not(.playing) #nitroWrap,
   #hud:not(.playing) #viewBadge { display:none; }
-  /* 暂停键只在比赛中出现（菜单里没有可暂停的东西） */
-  #hud:not(.playing) #btnPause { display:none; }
   #overTitle { font-size:25px; font-weight:900; color:#ff5a6e; letter-spacing:2px; }
   #overStats { font-size:13px; color:#cbd6e6; line-height:2.1; }
   #overStats b { color:#ffd23f; font-size:17px; }
-  #bestLine { font-size:12px; color:#8fa0b8; letter-spacing:1px; }
-  #bestLine b { color:#7fd7ff; }
-  #newBest { color:#ffd23f; font-weight:800; margin-left:6px; }
   .no-webgl { color:#ff8a8a; font-size:13px; max-width:300px; line-height:1.8; }
   .ver { position:absolute; bottom:30px; font-size:10px; color:#55627a; letter-spacing:1px; }
 
@@ -190,61 +178,6 @@ window.addEventListener('unhandledrejection', function (e) {
   #mile { margin-top:3px; font-size:12px; font-weight:800; color:#7fd7ff; font-variant-numeric:tabular-nums;
           text-shadow:0 1px 4px rgba(0,0,0,.6); }
 
-  /* —— 氮气：踏板簇第三个圆钮 + 独立能量条 —— */
-  #btnNitro { pointer-events:auto; width:74px; height:74px; border-radius:50%; display:flex; align-items:center;
-              justify-content:center; font-size:14px; font-weight:800; letter-spacing:1px; user-select:none;
-              border:2px solid rgba(255,255,255,.25); backdrop-filter:blur(4px);
-              background:radial-gradient(circle at 35% 30%, rgba(150,200,255,.4), rgba(30,60,150,.6));
-              color:#dceaff; box-shadow:0 6px 18px rgba(80,140,255,.3); transition:transform .06s, box-shadow .1s; }
-  #btnNitro.on { transform:scale(.92); box-shadow:0 0 26px rgba(140,200,255,.6); }
-  #btnNitro.empty { opacity:.42; box-shadow:none; }
-  #nitroWrap { position:absolute; left:calc(126px + env(safe-area-inset-left));
-               bottom:calc(92px + env(safe-area-inset-bottom)); width:246px; }
-  #nitroBar { width:100%; height:6px; border-radius:3px; background:rgba(255,255,255,.14); overflow:hidden; }
-  #nitroBar i { display:block; height:100%; width:100%; background:linear-gradient(90deg,#4b7dff,#9fd0ff); }
-
-  /* —— 高速速度线（随车速渐显，纯静态贴图只改 opacity，零逐帧开销）—— */
-  #speedLines { position:fixed; inset:0; pointer-events:none; z-index:4; opacity:0;
-                background-size:cover; background-position:center; background-repeat:no-repeat; }
-
-  /* —— 左手模式：把踏板簇 + 仪表盘镜像到右侧，路线图挪到左侧 —— */
-  body.lefty #gauge { left:auto; right:calc(8px + env(safe-area-inset-right)); }
-  body.lefty #pedals { left:auto; right:calc(126px + env(safe-area-inset-right)); flex-direction:row-reverse; }
-  body.lefty #nitroWrap { left:auto; right:calc(126px + env(safe-area-inset-right)); }
-  body.lefty #mapBox { right:auto; left:calc(8px + env(safe-area-inset-left)); }
-
-  /* —— 启动加载遮罩 —— */
-  #boot { position:fixed; inset:0; z-index:20; background:#0b0f1a; display:flex; flex-direction:column;
-          align-items:center; justify-content:center; gap:16px; }
-  #boot.hidden { display:none; }
-  #bootBar { width:min(62vw,320px); height:6px; border-radius:3px; background:rgba(255,255,255,.12); overflow:hidden; }
-  #bootBar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,#ffd23f,#ff9d2e); transition:width .18s ease; }
-  #bootTxt { font-size:12px; color:#9fb0c8; letter-spacing:2px; }
-
-  /* —— 设置面板 —— */
-  #settings { position:fixed; inset:0; z-index:22; background:rgba(6,9,18,.9); display:none;
-              flex-direction:column; align-items:center; justify-content:center; gap:9px; padding:14px; overflow:auto; }
-  #settings.show { display:flex; }
-  #settings h3 { font-size:15px; font-weight:800; color:#fff; letter-spacing:2px; margin-bottom:2px; }
-  .setRow { width:min(86vw,540px); display:flex; align-items:center; justify-content:space-between; gap:12px;
-            background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.10); border-radius:12px; padding:8px 14px; }
-  .setRow .lb { font-size:12px; color:#cfd8e8; letter-spacing:1px; }
-  .setRow .rl { display:flex; align-items:center; gap:10px; }
-  .setRow input[type=range] { width:140px; accent-color:#7fd7ff; }
-  .setRow .vv { font-size:12px; color:#7fd7ff; width:32px; text-align:right; font-variant-numeric:tabular-nums; }
-  .tgl { pointer-events:auto; cursor:pointer; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.06);
-         color:#9fb0c8; border-radius:999px; padding:4px 14px; font-size:12px; font-weight:700; letter-spacing:1px; }
-  .tgl.on { background:rgba(127,240,192,.16); border-color:rgba(127,240,192,.5); color:#7ff0c0; }
-  .seg { pointer-events:auto; cursor:pointer; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.06);
-         color:#9fb0c8; border-radius:9px; padding:5px 12px; font-size:12px; font-weight:700; }
-  .seg.on { background:rgba(255,210,63,.18); border-color:rgba(255,210,63,.55); color:#ffd23f; }
-
-  /* —— 暂停面板 —— */
-  #pause { position:fixed; inset:0; z-index:21; background:rgba(6,9,18,.74); display:none;
-           flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:18px; }
-  #pause.show { display:flex; }
-  #pause h3 { font-size:20px; font-weight:900; color:#fff; letter-spacing:4px; }
-
   /* —— 横屏适配：屏幕高度小，压缩纵向、按钮横排 —— */
   @media (orientation: landscape) and (max-height: 560px) {
     .overlay { gap:8px; padding:10px 16px; }
@@ -254,31 +187,16 @@ window.addEventListener('unhandledrejection', function (e) {
     .btn { padding:9px 32px; font-size:15px; }
     .tips { font-size:10px; line-height:1.6; }
     .ver { bottom:22px; font-size:9px; }
-    /* 横屏：按钮改横排一行、靠右对齐、间距 8px —— 结构上不再重叠 */
-    #topBtns { top:52px; flex-direction:row; align-items:center; }
-    #btnSound, #btnView, #btnGyro, #btnSet { height:30px; font-size:11px; border-radius:9px; }
+    #topBtns { top:56px; flex-direction:row; align-items:center; }
+    #btnSound, #btnView, #btnGyro { height:30px; font-size:11px; border-radius:9px; }
     #btnSound { width:30px; font-size:14px; }
-    #lives { top:58px; }
-    #dmgBar { top:82px; width:88px; }
-    #gauge { width:88px; height:88px; bottom:6px; }
-    #pedals { left:calc(102px + env(safe-area-inset-left)); bottom:6px; gap:10px; }
-    .pedal { width:58px; height:58px; font-size:12px; }
-    #btnNitro { width:58px; height:58px; font-size:12px; }
-    #nitroWrap { left:calc(102px + env(safe-area-inset-left)); bottom:calc(72px + env(safe-area-inset-bottom)); width:194px; }
-    body.lefty #gauge { left:auto; right:calc(8px + env(safe-area-inset-right)); }
-    body.lefty #pedals { left:auto; right:calc(102px + env(safe-area-inset-right)); }
-    body.lefty #nitroWrap { left:auto; right:calc(102px + env(safe-area-inset-right)); }
+    #lives { bottom:28px; }
+    #gauge { width:96px; height:96px; bottom:6px; }
+    #pedals { left:calc(110px + env(safe-area-inset-left)); bottom:6px; gap:10px; }
+    .pedal { width:62px; height:62px; font-size:12px; }
     #mapBox { width:100px; bottom:6px; }
     #mini { width:100px; height:100px; }
     #mile { font-size:11px; }
-    /* 设置面板：横屏高度只有 ~400px，必须压扁，否则标题被裁掉 */
-    #settings { gap:5px; padding:8px 12px; }
-    #settings h3 { font-size:13px; margin-bottom:0; }
-    .setRow { padding:4px 12px; }
-    .setRow .lb { font-size:11px; }
-    .setRow input[type=range] { width:104px; }
-    .tgl, .seg { padding:3px 11px; font-size:11px; }
-    #btnSetClose { padding:6px 26px !important; font-size:13px !important; }
   }
 </style>
 </head>
@@ -292,70 +210,23 @@ window.addEventListener('unhandledrejection', function (e) {
   </div>
   <div id="viewBadge">追尾视角</div>
   <div id="topBtns">
-    <button id="btnSet">设置</button>
-    <button id="btnPause">暂停</button>
     <button id="btnSound">&#9835;</button>
     <button id="btnView" class="hidden">切换视角</button>
     <button id="btnGyro">陀螺仪·关</button>
   </div>
   <div id="combo"><div class="cm" id="comboTxt">x1</div><div class="bar"><i id="comboBar"></i></div></div>
   <canvas id="gauge" width="224" height="224"></canvas>
-  <div id="nitroWrap"><div id="nitroBar"><i id="nitroFill"></i></div></div>
   <div id="pedals">
     <div class="pedal brake" id="pedBrake">刹车</div>
     <div class="pedal gas" id="pedGas">油门</div>
-    <div id="btnNitro">氮气</div>
   </div>
   <div id="mapBox">
     <canvas id="mini" width="236" height="236"></canvas>
     <div id="mile">0 m</div>
   </div>
   <div id="lives"></div>
-  <div id="dmgBar"><i id="dmgFill"></i></div>
 </div>
 <div id="flash"></div>
-<div id="speedLines"></div>
-
-<!-- 启动加载遮罩 -->
-<div id="boot">
-  <div class="logo-3d" style="font-size:26px">极速狂飙<span style="font-size:14px"> 3D</span></div>
-  <div id="bootBar"><i id="bootFill"></i></div>
-  <div id="bootTxt">正在生成赛道…</div>
-</div>
-
-<!-- 设置面板 -->
-<div id="settings">
-  <h3>设 置</h3>
-  <div class="setRow"><span class="lb">陀螺仪灵敏度</span>
-    <span class="rl"><input type="range" id="setGyro" min="0" max="150" value="100"><span class="vv" id="setGyroV">100</span></span></div>
-  <div class="setRow"><span class="lb">转向死区（防手抖）</span>
-    <span class="rl"><input type="range" id="setDead" min="0" max="20" value="8"><span class="vv" id="setDeadV">8</span></span></div>
-  <div class="setRow"><span class="lb">车道辅助（松手回中线）</span>
-    <button class="tgl" id="setAssist">关</button></div>
-  <div class="setRow"><span class="lb">左手模式（踏板移到右侧）</span>
-    <button class="tgl" id="setLefty">关</button></div>
-  <div class="setRow"><span class="lb">动态分辨率（保帧率）</span>
-    <button class="tgl" id="setDynres">开</button></div>
-  <div class="setRow"><span class="lb">速度线 / 高速抖动</span>
-    <button class="tgl" id="setSpeedfx">开</button></div>
-  <div class="setRow"><span class="lb">场景</span>
-    <span class="rl" id="setEnv">
-      <button class="seg on" data-env="day">白天</button>
-      <button class="seg" data-env="dusk">黄昏</button>
-      <button class="seg" data-env="night">夜晚</button>
-      <button class="seg" data-env="rain">雨天</button>
-    </span></div>
-  <button class="btn" id="btnSetClose" style="margin-top:6px;padding:9px 34px;font-size:15px">完 成</button>
-  <div style="font-size:11px;color:#5f6b80">设置会自动保存</div>
-</div>
-
-<!-- 暂停 -->
-<div id="pause">
-  <h3>已 暂 停</h3>
-  <button class="btn" id="btnResume">继 续</button>
-  <button class="btn ghost" id="btnRestart">重新开始</button>
-  <button class="btn ghost" id="btnToMenu">返回主菜单</button>
-</div>
 
 <!-- 开始菜单 -->
 <div class="overlay" id="menu">
@@ -364,13 +235,13 @@ window.addEventListener('unhandledrejection', function (e) {
   <div class="badge">横屏 · 弯道赛道 · 双视角</div>
   <button class="btn" id="btnStart">开 始</button>
   <div class="tips">
-    <span>&#128664; 左下 <b>刹车 / 油门 / 氮气</b> · 屏幕右侧左右滑动控制转向</span><br>
-    <span>&#128506; 右下 <b>路线图</b> 实时显示位置与里程 · 左上显示生命与车损</span><br>
-    <span>&#128165; 撞车不再直接掉命：先减速 + 短暂无敌，<b>车损攒满</b>才扣一颗心</span><br>
-    <span>&#128268; 右上 <b>设置</b> 可调陀螺仪灵敏度 / 转向死区 / 左手模式 / 白天黄昏夜晚雨天</span><br>
-    <span>&#9000; 键盘：←→/A D 转向 · ↑油门 · ↓刹车 · <b>空格氮气</b> · <b>P/ESC 暂停</b> · <b>C</b> 切视角</span>
+    <span>&#128664; 左下 <b>油门 / 刹车踏板</b> · 屏幕右侧左右滑动控制转向</span><br>
+    <span>&#128506; 右下 <b>路线图</b> 实时显示位置与里程</span><br>
+    <span>&#128268; 点右上 <b>陀螺仪</b> 可用机身倾斜调整视角 · <b>C</b> 切换车内/车后视角</span><br>
+    <span>&#9000; 键盘：←→/A D 转向 · ↑油门 · ↓刹车</span><br>
+    <span>&#128142; 连吃宝石触发 <b>连击倍率</b> · 躲避车辆 · 撞车损失生命</span>
   </div>
-  <div class="ver">v0.14.0</div>
+  <div class="ver">v0.13.1</div>
 </div>
 
 <!-- 结束 -->
@@ -380,7 +251,6 @@ window.addEventListener('unhandledrejection', function (e) {
     得分 <b id="finalScore">0</b><br>
     里程 <b id="finalDist">0</b> m · 宝石 <b id="finalGems">0</b>
   </div>
-  <div id="bestLine">最佳里程 <b id="bestDist">0</b> m · 最佳得分 <b id="bestScore">0</b><span id="newBest"></span></div>
   <button class="btn" id="btnAgain">再 来 一 局</button>
 </div>
 

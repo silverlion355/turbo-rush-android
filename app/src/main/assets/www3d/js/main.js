@@ -36,88 +36,20 @@
     LANES: 4, LANE_W: 14 / 4,
     MAX_SPEED: 245, REVERSE_MAX: -50,
     ACCEL: 38, BRAKE_DECEL: 85, COAST_DECEL: 16, ROLL_DRAG: 0.12,
-    /* —— v0.14.0 转向手感（旧值：RATE 6.2 / 打满 16% 屏宽 / 跟随 9 / 抓地 0.45+0.55r）——
-       实测 120km/h 下横向最大速度仅 4.46m/s，横穿一次路面要 1.4s，玩家反馈"转弯慢"。
-       四项一起调：最大横移 +48%、手指少滑 38% 就打满、跟随延迟 111ms→71ms、低速抓地抬高。 */
-    STEER_RATE: 9.2,          // 最大横向速度 m/s
-    STEER_SWIPE: 0.10,        // 滑动打满所需的屏宽占比
-    STEER_SWIPE_MIN: 60,      // 打满位移下限（px），防止窄屏过敏
-    STEER_LAG: 14,            // 横向速度跟随系数（越大越跟手）
-    STEER_CURVE: 0.85,        // 输入幂曲线 |x|^0.85：小幅滑动更有效
-    STEER_MAX_OFFSET: 6.2,    // 横向偏移上限（路半宽 7m，留 0.8m 余量）
-    STEER_HISPD_CAP: 0.86,    // 极速时横移折减系数，防"甩尾式"瞬移
-    STEER_DEAD: 0.08,         // 转向死区（防手指微抖）
-    ASSIST_RATE: 1.6,         // 车道辅助：松手后回中线的横向速度 m/s（默认关）
-    FOV: 64, FOV_MAX: 78,     // 高速时 FOV 扩张，强化速度感
-    ASSIST_ON: false,
-    CAM_DIST: 8.6, CAM_H: 4.6, CAM_LOOK_Y: 1.1, CAM_LOOK_AHEAD: 24,
-    COCKPIT_OFFSET: new THREE.Vector3(0.30, 0.98, 0.34),   // v6.0：抬到仪表台上方，越过引擎盖看清路面
-    INVINCIBLE: 2.6,          // 1.8 → 2.6：撞车后的无敌时间加长，不打断节奏
-    HIT_DROP: 0.62,           // 撞车减速保留率
-    CRASH_DMG: 0.34,          // 每次撞击累积的车损；攒满 1 才扣一颗心（=撞 3 次掉一颗）
-    LIVES: 3,
-    /* —— 氮气 —— */
-    NITRO_BOOST: 1.45,        // 加速倍率
-    NITRO_DRAIN: 0.40,        // 每秒消耗
-    NITRO_REGEN: 0.075,       // 每秒回充
-    NITRO_MIN: 0.18,          // 起步所需最低能量
+    STEER_KBD: 520, STEER_TOUCH: 5.4, STEER_MAX_OFFSET: 6.2, STEER_RECOVER: 4.5,
+    STEER_RATE: 9.2,                    // v0.13.1：6.2 → 9.2（转弯明显更跟手）
+    STEER_LAG: 14,                      // v0.13.1：横向速度跟随系数 9 → 14（减少"打舵后要等一下"的迟滞）
+    STEER_SWIPE: 0.10, STEER_SWIPE_MIN: 60, // v0.13.1：滑动 0.16 屏宽打满 → 0.10 屏宽（且不低于 60px）
+    FOV: 64, CAM_DIST: 8.6, CAM_H: 4.6, CAM_LOOK_Y: 1.1, CAM_LOOK_AHEAD: 24,
+    COCKPIT_OFFSET: new THREE.Vector3(0.30, 0.98, 0.34),   // v6.0：0.74 → 0.98（抬到仪表台上方、挡风下沿之上，越过引擎盖看清路面）
+    INVINCIBLE: 1.8, HIT_DROP: 0.55,
     GEM_SCORE: 60, GEM_COMBO_WIN: 1.8,
     TRACK_N: 600, LOOP_KM_H: 200,
-    FOG_NEAR: 120, FOG_FAR: 640, FOG_COLOR: 0xcfe4f0,
+    FOG_NEAR: 120, FOG_FAR: 640, FOG_COLOR: 0xcfe4f0,       // v6.0：远景更通透
     AI_SPEED_MIN: 0.42, AI_SPEED_MAX: 0.72,
     GYRO_YAW_RANGE: 0.55, GYRO_PITCH_RANGE: 0.30,
     SKY_R: 800, GROUND_R: 1100, BACKDROP_R: 760, BACKDROP_H: 320
   };
-
-  /* ======== 偏好设置：localStorage 持久化 ========
-     真机 WebView 的 file:// 下 localStorage 可能被禁用，全部调用都裹 try/catch。 */
-  var PKEY = 'turborush3d.prefs.v1';
-  var prefs = {
-    muted: false, gyroSens: 1.0, dead: 8, assist: false, lefty: false,
-    dynres: true, speedfx: true, env: 'day', view: 'chase'
-  };
-  function loadPrefs() {
-    try {
-      var raw = localStorage.getItem(PKEY);
-      if (!raw) return;
-      var o = JSON.parse(raw);
-      for (var k in prefs) if (Object.prototype.hasOwnProperty.call(o, k)) prefs[k] = o[k];
-    } catch (e) { }
-  }
-  function savePrefs() {
-    try { localStorage.setItem(PKEY, JSON.stringify(prefs)); } catch (e) { }
-  }
-  /* 历史最佳（本机） */
-  var BKEY = 'turborush3d.best.v1';
-  var best = { dist: 0, score: 0 };
-  function loadBest() {
-    try { var r = localStorage.getItem(BKEY); if (r) { var o = JSON.parse(r); if (o.dist) best.dist = o.dist; if (o.score) best.score = o.score; } } catch (e) { }
-  }
-  function saveBest() { try { localStorage.setItem(BKEY, JSON.stringify(best)); } catch (e) { } }
-
-  /* ======== 场景预设（白天 / 黄昏 / 夜晚 / 雨天） ======== */
-  var ENV = {
-    day: { sky: ['#2b6fc4', '#5fa4e2', '#a9d3f2', '#dcecf9', '#e9f3f8'], bg: 0xbfe0ff,
-           fog: 0xcfe4f0, fogN: 120, fogF: 640, amb: 0.55, sunI: 1.15, sunC: 0xfff2d8,
-           fill: 0.35, hemi: 0.55, winLit: 0.16, winGlow: 0.0, sunVis: true, rain: false,
-           clouds: true, envMap: true },
-    dusk: { sky: ['#1b2a5c', '#464a88', '#c07a48', '#eea95f', '#f7d9a8'], bg: 0xc98a5a,
-            fog: 0xd9a878, fogN: 95, fogF: 520, amb: 0.40, sunI: 0.85, sunC: 0xffb066,
-            fill: 0.24, hemi: 0.38, winLit: 0.44, winGlow: 0.5, sunVis: true, rain: false,
-            clouds: true, envMap: true },
-    /* 夜晚：环境反射贴图必须一起关掉。它是 PMREM 生成的全天空光照，
-       只调灯强度的话草地/树还是白天的亮度 —— 实测这样场景"暗不下来"。 */
-    night: { sky: ['#04060d', '#0a1226', '#132043', '#1b2c52', '#243a63'], bg: 0x0d1424,
-             fog: 0x18233a, fogN: 70, fogF: 430, amb: 0.10, sunI: 0.10, sunC: 0x9fb6ff,
-             fill: 0.05, hemi: 0.10, winLit: 0.76, winGlow: 1.15, sunVis: false, rain: false,
-             clouds: false, envMap: false },
-    rain: { sky: ['#333c4a', '#4e5a6d', '#75808f', '#95a0ae', '#aeb8c4'], bg: 0x8f9aa8,
-            fog: 0xa8b2be, fogN: 55, fogF: 340, amb: 0.34, sunI: 0.34, sunC: 0xd8e2ee,
-            fill: 0.16, hemi: 0.30, winLit: 0.38, winGlow: 0.3, sunVis: false, rain: true,
-            clouds: false, envMap: true }
-  };
-  var envMapTex = null;       // PMREM 出来的环境反射贴图引用（夜晚要摘掉）
-  var bMats = [];             // 楼群材质（夜间改 emissiveIntensity 让窗亮起来）
 
   function $(id) { return document.getElementById(id); }
 
@@ -135,24 +67,7 @@
 
   /* ======== 音频 ======== */
   var Audio = {
-    ctx: null, master: null, muted: false, engine: null, wind: null, tire: null,
-    /* v0.14.0：风噪与胎擦都是"循环噪声 + 带通滤波 + 跟随物理量的增益"，
-       比每帧新建节点便宜，也比采样音频包小得多（不用打包任何音频文件）。 */
-    _noiseLoop: function (len, filtType, freq, q) {
-      var t = this.ctx.currentTime;
-      var buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * len), this.ctx.sampleRate);
-      var d = buf.getChannelData(0), last = 0;
-      for (var i = 0; i < d.length; i++) {
-        var w = Math.random() * 2 - 1;
-        last = (last + 0.03 * w) / 1.03;                 // 一阶低通 → 更接近"气流"而不是白噪
-        d[i] = filtType === 'bandpass' ? (Math.random() * 2 - 1) * 0.6 : last * 3.2;
-      }
-      var s = this.ctx.createBufferSource(); s.buffer = buf; s.loop = true;
-      var f = this.ctx.createBiquadFilter(); f.type = filtType; f.frequency.value = freq; f.Q.value = q;
-      var g = this.ctx.createGain(); g.gain.value = 0;
-      s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
-      return { src: s, gain: g, filt: f };
-    },
+    ctx: null, master: null, muted: false, engine: null,
     ensure: function () {
       if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return true; }
       try {
@@ -188,28 +103,7 @@
     engineSpeed: function (ratio) {
       if (!this.engine) return; var f = 55 + ratio * 130; this.engine.o1.frequency.value = f; this.engine.o2.frequency.value = f / 2;
     },
-    stopEngine: function () { if (!this.engine) return; try { this.engine.o1.stop(); this.engine.o2.stop(); } catch (e) { } this.engine = null; },
-    startAir: function () {
-      if (!this.ensure()) return;
-      if (!this.wind) { try { this.wind = this._noiseLoop(2, 'lowpass', 620, 0.7); } catch (e) { } }
-      if (!this.tire) { try { this.tire = this._noiseLoop(1.5, 'bandpass', 2400, 6); } catch (e) { } }
-    },
-    windSpeed: function (ratio) {
-      if (!this.wind) return;
-      var r = clamp(ratio, 0, 1.6);
-      this.wind.gain.gain.value = this.muted ? 0 : r * 0.05;
-      this.wind.filt.frequency.value = 420 + r * 900;
-    },
-    tireSlip: function (amt) {
-      if (!this.tire) return;
-      var a = clamp(amt, 0, 1);
-      this.tire.gain.gain.value = this.muted ? 0 : a * 0.07;
-      this.tire.filt.frequency.value = 1800 + a * 1600;
-    },
-    stopAir: function () {
-      if (this.wind) { try { this.wind.src.stop(); } catch (e) { } this.wind = null; }
-      if (this.tire) { try { this.tire.src.stop(); } catch (e) { } this.tire = null; }
-    }
+    stopEngine: function () { if (!this.engine) return; try { this.engine.o1.stop(); this.engine.o2.stop(); } catch (e) { } this.engine = null; }
   };
 
   /* ======== DOM / 状态 ======== */
@@ -237,45 +131,14 @@
   var trackSamples = [], totalLen = 0, trackCurve = null;
   var curSeg = { pos: new THREE.Vector3(), yaw: 0, right: new THREE.Vector3(1, 0, 0) };
 
-  /* ======== v0.14.0 新增状态 ======== */
-  var nitro = 1, nitroOn = false, nitroFov = 0, crashDmg = 0;
-  var skyMesh = null, skyCv = null, skyCtx = null, skyTex = null;
-  var sunSprite = null, sunLight = null, fillLight = null, ambLight = null, hemiLight = null;
-  var rainPts = null, rainArr = null;
-  var winCv = null, winCtx = null, winTex = null;
-  var winEmisCv = null, winEmisCtx = null, winEmisTex = null;
-  var skidMat = null, skidInst = null, skidIdx = 0, skidCount = 0;
-  var carShadow = null, shadowTex = null;
-  var dynScale = 1, dynAcc = 0, dynN = 0, dynCool = 0;
-  var paused = false;
-  var uiNitroFill = $('nitroFill'), uiDmgFill = $('dmgFill'), btnNitro = $('btnNitro'),
-      elSpeedLines = $('speedLines'), elBoot = $('boot'), bootFill = $('bootFill'), bootTxt = $('bootTxt'),
-      elSettings = $('settings'), elPause = $('pause'),
-      uiBestD = $('bestDist'), uiBestS = $('bestScore'), uiNewBest = $('newBest');
-
   /* ======== 输入 ========
      v6.0 控制方案：
        · 左下「油门 / 刹车」踏板按钮（按住生效，支持触摸与鼠标）
        · 屏幕右侧区域左右滑动 → 比例转向（相对起点的位移，越往右越右转）
        · 键盘兜底：←→/A D 转向，↑ 油门，↓ 刹车
      ==================================== */
-  var input = { kLeft: 0, kRight: 0, kUp: 0, kDown: 0, drag: null, gas: false, brake: false,
-                nitro: false, swipeGas: false, swipeBrake: false };
+  var input = { kLeft: 0, kRight: 0, kUp: 0, kDown: 0, drag: null, gas: false, brake: false, swipeGas: false, swipeBrake: false };
   var steerTouchId = null;   // 正在负责"转向滑动"的那根手指的 identifier
-
-  /* 转向输入整形：死区（防手抖）→ 归一化 → 幂曲线（小幅滑动更有效）
-     旧实现是纯线性，手指挪一点点几乎没反应，所以"感觉迟钝"。 */
-  function applySteerCurve(v) {
-    var a = Math.abs(v), dz = clamp(prefs.dead / 100, 0, 0.3);
-    if (a <= dz) return 0;
-    a = (a - dz) / (1 - dz);
-    a = Math.pow(a, CFG.STEER_CURVE);
-    return v < 0 ? -a : a;
-  }
-  /* 转向手势区：右手模式认右 58%，左手模式整体镜像 */
-  function inSteerZone(clientX) {
-    return prefs.lefty ? (clientX <= W * 0.58) : (clientX >= W * 0.42);
-  }
 
   function bindPedal(el, key, cls) {
     if (!el) return;
@@ -290,7 +153,6 @@
   }
   bindPedal(pedGas, 'gas');
   bindPedal(pedBrake, 'brake');
-  bindPedal(btnNitro, 'nitro');
 
   /* ⚠️ v6.0 多点触控修复：
      旧实现用 e.touches[0] 取"第一根手指"——若玩家先用左拇指按住油门、
@@ -303,8 +165,8 @@
     e.preventDefault();
     var t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
     if (!t) return;
-    // 左手/右手模式决定哪一侧是转向区；另一侧留给踏板簇
-    if (!inSteerZone(t.clientX)) return;
+    // 左 42% 区域留给踏板/仪表盘，转向只认右侧滑动
+    if (t.clientX < W * 0.42) return;
     if (steerTouchId !== null && steerTouchId !== t.identifier) return;  // 已有一根手指在转向
     steerTouchId = t.identifier;
     input.drag = { sx: t.clientX, sy: t.clientY, lx: 0 };
@@ -315,9 +177,8 @@
     var t = null;
     for (var i = 0; i < e.touches.length; i++) if (e.touches[i].identifier === steerTouchId) t = e.touches[i];
     if (!t) return;
-    // 相对起点位移 → 比例转向：现在滑动约 1/10 屏宽即打满（旧值 1/6，手指行程少 38%）
-    var denom = Math.max(W * CFG.STEER_SWIPE, CFG.STEER_SWIPE_MIN);
-    input.drag.lx = applySteerCurve(clamp((t.clientX - input.drag.sx) / denom, -1, 1));
+    // 相对起点位移 → 比例转向：滑动约 1/10 屏宽即打满（v0.13.1：原 1/6 偏钝）
+    input.drag.lx = clamp((t.clientX - input.drag.sx) / Math.max(W * CFG.STEER_SWIPE, CFG.STEER_SWIPE_MIN), -1, 1);
     // 顺手支持：右侧上滑加油 / 下滑刹车（保留旧习惯，与踏板等效、独立于踏板）
     var dyFromBase = t.clientY - input.drag.sy;
     if (Math.abs(dyFromBase) > 26) {
@@ -346,15 +207,12 @@
     if (e.code === 'KeyM') toggleMute();
     if (e.code === 'KeyC' || e.code === 'KeyV') { if (state === 'run') cycleView(); }
     if (e.code === 'KeyG') toggleGyro();
-    if (e.code === 'Space') { input.nitro = 1; e.preventDefault(); }      // 空格 = 氮气
-    if (e.code === 'KeyP' || e.code === 'Escape') { togglePause(); }
   });
   window.addEventListener('keyup', function (e) {
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') input.kLeft = 0;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') input.kRight = 0;
     if (e.code === 'ArrowUp' || e.code === 'KeyW') input.kUp = 0;
     if (e.code === 'ArrowDown' || e.code === 'KeyS') input.kDown = 0;
-    if (e.code === 'Space') input.nitro = 0;
   });
 
   /* ======== 陀螺仪 ======== */
@@ -397,12 +255,7 @@
   }
 
   /* ======== 视角 ======== */
-  function cycleView() {
-    viewMode = 1 - viewMode;
-    setViewUI();
-    prefs.view = (viewMode === COCKPIT) ? 'cockpit' : 'chase';   // 视角偏好持久化
-    savePrefs();
-  }
+  function cycleView() { viewMode = 1 - viewMode; setViewUI(); }
   var carHiddenByDebug = false, forceHideCar = false;
   // 车身可见性统一入口：座舱视角（仅比赛中）/ 调试隐藏 时不可见；无敌闪烁在主循环里叠加
   // 注意：菜单/结算界面仍显示车身（镜头绕车动画），所以座舱隐藏只在 state==='run' 时生效
@@ -715,9 +568,7 @@
       cx.fillStyle = gr; cx.fillRect(0, 0, 64, 32);
       var envTex = new THREE.CanvasTexture(cv); envTex.mapping = THREE.EquirectangularReflectionMapping;
       var pmrem = new THREE.PMREMGenerator(renderer);
-      var rt = pmrem.fromEquirectangular(envTex);
-      envMapTex = rt.texture;                    // 留引用：夜晚会把它摘掉
-      scene.environment = envMapTex;
+      var rt = pmrem.fromEquirectangular(envTex); scene.environment = rt.texture;
       envTex.dispose(); pmrem.dispose();
     } catch (e) {
       scene.environment = null;   // 低端机忽略环境反射
@@ -726,24 +577,27 @@
     // PMREM 会切换 renderTarget，显式复位，避免个别驱动后续渲染到离屏缓冲 → 黑屏
     try { renderer.setRenderTarget(null); } catch (e2) {}
 
-    // 灯光（引用留给 applyEnv 按白天/黄昏/夜晚/雨天动态调整）
-    ambLight = new THREE.AmbientLight(0xffffff, 0.55); scene.add(ambLight);
-    sunLight = new THREE.DirectionalLight(0xfff2d8, 1.15); sunLight.position.set(80, 120, 40); scene.add(sunLight);
-    fillLight = new THREE.DirectionalLight(0x9fc8ff, 0.35); fillLight.position.set(-60, 30, -50); scene.add(fillLight);
-    hemiLight = new THREE.HemisphereLight(0xbfd8ff, 0x3a4a33, 0.55); scene.add(hemiLight);
+    // 灯光
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    var sun = new THREE.DirectionalLight(0xfff2d8, 1.15); sun.position.set(80, 120, 40); scene.add(sun);
+    var fill = new THREE.DirectionalLight(0x9fc8ff, 0.35); fill.position.set(-60, 30, -50); scene.add(fill);
+    scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x3a4a33, 0.55));
 
     /* —— v6.0 天空：渐变贴图天空球（纯色 → 有层次的渐变） —— */
-    skyCv = document.createElement('canvas'); skyCv.width = 8; skyCv.height = 256;
-    skyCtx = skyCv.getContext('2d');
-    paintSky(ENV[prefs.env] ? ENV[prefs.env].sky : ENV.day.sky);
-    skyTex = new THREE.CanvasTexture(skyCv);
-    skyMesh = new THREE.Mesh(
+    var skyCv = document.createElement('canvas'); skyCv.width = 8; skyCv.height = 256;
+    var sx = skyCv.getContext('2d');
+    var sg = sx.createLinearGradient(0, 0, 0, 256);
+    sg.addColorStop(0, '#2b6fc4'); sg.addColorStop(0.32, '#5fa4e2');
+    sg.addColorStop(0.60, '#a9d3f2'); sg.addColorStop(0.80, '#dcecf9'); sg.addColorStop(1, '#e9f3f8');
+    sx.fillStyle = sg; sx.fillRect(0, 0, 8, 256);
+    var skyTex = new THREE.CanvasTexture(skyCv);
+    var sky = new THREE.Mesh(
       new THREE.SphereGeometry(CFG.SKY_R, 24, 16),
       new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false })
     );
-    skyMesh.position.y = -30;
-    skyMesh.renderOrder = -1000;
-    scene.add(skyMesh);
+    sky.position.y = -30;
+    sky.renderOrder = -1000;
+    scene.add(sky);
 
     /* —— v6.0 太阳：径向渐变光晕 Sprite（与主平行光同方向） —— */
     try {
@@ -753,12 +607,12 @@
       rg.addColorStop(0, 'rgba(255,255,245,1)'); rg.addColorStop(0.16, 'rgba(255,247,214,.95)');
       rg.addColorStop(0.40, 'rgba(255,230,168,.34)'); rg.addColorStop(1, 'rgba(255,222,150,0)');
       ux.fillStyle = rg; ux.beginPath(); ux.arc(64, 64, 64, 0, 6.284); ux.fill();
-      sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      var sunSpr = new THREE.Sprite(new THREE.SpriteMaterial({
         map: new THREE.CanvasTexture(sunCv), fog: false, depthWrite: false, transparent: true
       }));
-      sunSprite.scale.set(210, 210, 1);
-      sunSprite.position.copy(new THREE.Vector3(80, 120, 40).normalize().multiplyScalar(CFG.SKY_R * 0.88));
-      scene.add(sunSprite);
+      sunSpr.scale.set(210, 210, 1);
+      sunSpr.position.copy(new THREE.Vector3(80, 120, 40).normalize().multiplyScalar(CFG.SKY_R * 0.88));
+      scene.add(sunSpr);
     } catch (eSun) { /* 忽略 */ }
 
     /* —— v6.0 云层：柔和云朵 Sprite 缓慢漂移 —— */
@@ -1081,54 +935,31 @@
   }
 
   /* ======== 城市建筑群（沿路远景天际线，带程序化窗户贴图） ======== */
-  /* 窗格按"亮灯率"重绘：白天几乎全暗、夜晚大半亮着 —— 这是夜晚天际线的主要观感来源。
-     画布与贴图缓存在模块级，切换场景时只需重绘 + needsUpdate，不必重建材质。 */
-  /* 两张图同步重绘：
-     ① 墙面贴图（map）—— 窗户亮/暗的可见差异；
-     ② 自发光贴图（emissiveMap）—— 墙面纯黑、亮窗纯黄。
-        夜晚若只调低灯光，窗是被"照"亮的，亮度跟着环境走，楼群依旧一片灰；
-        有了自发光图，窗才会真的"自己发光"，天际线才立得住。 */
-  function drawWindows(lit) {
-    if (!winCtx) return;
-    var x = winCtx, e = winEmisCtx;
-    x.fillStyle = '#79879a'; x.fillRect(0, 0, 64, 64);
-    if (e) { e.fillStyle = '#000000'; e.fillRect(0, 0, 64, 64); }
+  function makeWindowTexture() {
+    var c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    var x = c.getContext('2d');
+    x.fillStyle = '#79879a'; x.fillRect(0, 0, 64, 64);          // 墙面
     for (var r = 0; r < 4; r++) {
       for (var q = 0; q < 4; q++) {
-        var on = Math.random() < lit;
-        x.fillStyle = on ? 'rgba(255,224,155,.95)' : 'rgba(44,62,86,.88)';
+        var lit = Math.random() < 0.16;                          // 少量亮灯窗
+        x.fillStyle = lit ? 'rgba(255,224,155,.95)' : 'rgba(44,62,86,.88)';
         x.fillRect(q * 16 + 3.5, r * 16 + 4, 9, 9);
-        if (e && on) { e.fillStyle = 'rgba(255,236,180,1)'; e.fillRect(q * 16 + 3.5, r * 16 + 4, 9, 9); }
       }
     }
-    if (winTex) winTex.needsUpdate = true;
-    if (winEmisTex) winEmisTex.needsUpdate = true;
-  }
-
-  function makeWindowTexture(lit) {
-    winCv = document.createElement('canvas'); winCv.width = 64; winCv.height = 64;
-    winCtx = winCv.getContext('2d');
-    winEmisCv = document.createElement('canvas'); winEmisCv.width = 64; winEmisCv.height = 64;
-    winEmisCtx = winEmisCv.getContext('2d');
-    drawWindows(lit === undefined ? 0.16 : lit);
-    winTex = new THREE.CanvasTexture(winCv);
-    winTex.wrapS = winTex.wrapT = THREE.RepeatWrapping;
-    winEmisTex = new THREE.CanvasTexture(winEmisCv);
-    winEmisTex.wrapS = winEmisTex.wrapT = THREE.RepeatWrapping;
-    return winTex;
+    var t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
   }
 
   function buildCityBlocks() {
     if (/[?&]hide=city\b/.test(location.search)) return;   // 调试：排除城市建筑
-    var e0 = ENV[prefs.env] || ENV.day;
-    var wtex = makeWindowTexture(e0.winLit);
-    function bMat(hex) {
-      return new THREE.MeshLambertMaterial({
-        color: hex, map: wtex,
-        emissive: 0xffe4a8, emissiveMap: winEmisTex, emissiveIntensity: e0.winGlow
-      });
-    }
-    bMats = [bMat(0xf2f4f7), bMat(0xdbe6f2), bMat(0xf0e3d2), bMat(0xc9d6e4)];
+    var winTex = makeWindowTexture();
+    var bMats = [
+      new THREE.MeshLambertMaterial({ color: 0xf2f4f7, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xdbe6f2, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xf0e3d2, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xc9d6e4, map: winTex })
+    ];
     /* ⚠️ 修复：旧版楼群贴着赛道布置（侧向 -22~58m、高 14~52m、每 6 采样点一组），
        玩家在赛道上时视野被楼体完全填死（俯视验证：整屏灰蓝）。
        v6.0：退到赛道外 75~200m 作远景天际线，带窗户贴图与高度层次。 */
@@ -1323,25 +1154,13 @@
   }
 
   function resetRun() {
-    runT = 0; dist = 0; score = 0; gems = 0; lives = CFG.LIVES;
+    runT = 0; dist = 0; score = 0; gems = 0; lives = 3;
     speed = 0; throttle = 0; lateral = 0; lateralVel = 0; carTilt = 0; steerVis = 0;
     inv = 0; shake = 0; flash = 0; comboN = 0; comboT = 0;
-    crashDmg = 0; nitro = 1; nitroOn = false; nitroFov = 0; skidAcc = 0;
     if (playerGrp) { playerGrp.visible = carVisible(); playerGrp.rotation.set(0, 0, 0); }
     clearWorld();
     spawnWorld();
-    clearSkids();
     updateLives();
-  }
-
-  /* 清空轮胎痕（每局重置 + 把 200 个实例挪到地下，而不是重建 InstancedMesh） */
-  function clearSkids() {
-    if (!skidInst) return;
-    var d = new THREE.Object3D();
-    d.position.set(0, -999, 0); d.updateMatrix();
-    for (var i = 0; i < SKID_N; i++) skidInst.setMatrixAt(i, d.matrix);
-    skidInst.instanceMatrix.needsUpdate = true;
-    skidIdx = 0;
   }
 
   /* ======== 相机 ======== */
@@ -1350,21 +1169,11 @@
     var ratio = clamp(speed / CFG.MAX_SPEED, 0, 1.4);
     var samp = sampleAtS(playerS); // playerS global
     // 调试：?debugcam=top → 玩家上空 60m 俯视（排查起点周围几何）
-    if (debugCamTop === false) {
-      var mq = /[?&]debugcam=(\w+)/.exec(location.search);
-      debugCamTop = mq ? mq[1] : '';
-    }
-    if (debugCamTop === 'top') {
+    if (!debugCamTop) debugCamTop = /[?&]debugcam=top\b/.test(location.search);
+    if (debugCamTop) {
       var pT = playerGrp.position;
       camera.position.set(pT.x + 0.01, 60, pT.z);
       camera.lookAt(pT.x, 0, pT.z);
-      return;
-    }
-    // ?debugcam=low：车后 9m、高 8.5m 的近距俯视 —— 用来确认车底阴影与轮胎痕
-    if (debugCamTop === 'low') {
-      var pL = playerGrp.position;
-      camera.position.set(pL.x + Math.sin(samp.yaw) * 9, 8.5, pL.z + Math.cos(samp.yaw) * 9);
-      camera.lookAt(pL.x, 0.6, pL.z);
       return;
     }
     if (viewMode === COCKPIT) {
@@ -1377,15 +1186,15 @@
       camera.quaternion.copy(q);
       // 陀螺仪视角偏移
       if (gyroOn) {
-        camera.rotateY(gyroTilt.x * CFG.GYRO_YAW_RANGE * prefs.gyroSens);
-        camera.rotateX(-gyroTilt.y * CFG.GYRO_PITCH_RANGE * prefs.gyroSens);
+        camera.rotateY(gyroTilt.x * CFG.GYRO_YAW_RANGE);
+        camera.rotateX(-gyroTilt.y * CFG.GYRO_PITCH_RANGE);
       }
       camera.position.y += Math.sin(time * 1.7) * 0.0015 * (0.4 + ratio);
       if (shake > 0) {
         camera.position.x += (Math.random() - 0.5) * shake * 0.012;
         camera.position.y += (Math.random() - 0.5) * shake * 0.012;
       }
-      var tf = CFG.FOV - 6 + ratio * 18 + nitroFov * 10;
+      var tf = CFG.FOV - 6 + ratio * 18;
       if (Math.abs(tf - camFov) > 0.1) { camFov += (tf - camFov) * Math.min(1, dt * 5); camera.fov = camFov; camera.updateProjectionMatrix(); }
     } else {
       // 追尾相机：取玩家后方 camDist 的曲线点
@@ -1401,14 +1210,14 @@
       camera.lookAt(lx, CFG.CAM_LOOK_Y + ratio * 0.4, lz);
       // 陀螺仪偏移
       if (gyroOn) {
-        camera.rotateY(gyroTilt.x * CFG.GYRO_YAW_RANGE * prefs.gyroSens);
-        camera.rotateX(-gyroTilt.y * CFG.GYRO_PITCH_RANGE * prefs.gyroSens);
+        camera.rotateY(gyroTilt.x * CFG.GYRO_YAW_RANGE);
+        camera.rotateX(-gyroTilt.y * CFG.GYRO_PITCH_RANGE);
       }
       if (shake > 0) {
         camera.position.x += (Math.random() - 0.5) * shake * 0.02;
         camera.position.y += (Math.random() - 0.5) * shake * 0.02;
       }
-      var tf2 = CFG.FOV - 2 + ratio * 12 + nitroFov * 11;
+      var tf2 = CFG.FOV - 2 + ratio * 12;
       if (Math.abs(tf2 - camFov) > 0.1) { camFov += (tf2 - camFov) * Math.min(1, dt * 5); camera.fov = camFov; camera.updateProjectionMatrix(); }
     }
   }
@@ -1423,55 +1232,31 @@
     if (input.brake || input.swipeBrake || input.kDown) tgt -= 1;
     throttle += (tgt - throttle) * Math.min(1, dt * (tgt === 0 ? 4 : 8));
     if (Math.abs(throttle) < 0.004) throttle = 0;
-
-    /* —— 氮气：按住消耗、松开回充。能量见底自动断开，且需回到 NITRO_MIN 以上才能再点火（防抖）；
-       只在真的在给油时才判定，避免空踩浪费。 */
-    var wantNitro = !!input.nitro && throttle > 0.2;
-    if (wantNitro) {
-      if (nitroOn) { if (nitro <= 0.001) { nitroOn = false; nitro = 0; } }
-      else if (nitro >= CFG.NITRO_MIN) { nitroOn = true; vib(18); }
-    } else nitroOn = false;
-    if (nitroOn) nitro = Math.max(0, nitro - CFG.NITRO_DRAIN * dt);
-    else nitro = Math.min(1, nitro + CFG.NITRO_REGEN * dt);
-    nitroFov += ((nitroOn ? 1 : 0) - nitroFov) * Math.min(1, dt * (nitroOn ? 6 : 2.4));
-
     // 速度积分
     var thr = throttle;
     var drag = speed * CFG.ROLL_DRAG;
-    var accel = CFG.ACCEL * (nitroOn ? CFG.NITRO_BOOST : 1);
-    var cap = CFG.MAX_SPEED * (nitroOn ? CFG.NITRO_BOOST : 1);
     if (thr > 0) {
-      speed += (accel * thr - drag) * dt;
+      speed += (CFG.ACCEL * thr - drag) * dt;
     } else if (thr < 0) {
       speed += (CFG.BRAKE_DECEL * thr - drag) * dt;
     } else {
       speed -= drag * dt;
     }
-    // 超速时平滑回落（氮气结束不硬截断，避免速度指针"跳一下"）
-    if (speed > cap) speed = Math.max(cap, speed - 95 * dt);
+    if (speed > CFG.MAX_SPEED) speed = CFG.MAX_SPEED;
     if (speed < CFG.REVERSE_MAX) speed = CFG.REVERSE_MAX;
     // 推进 s
     var advance = speed / 3.6 * dt; // km/h -> m/s
     playerS += advance;
     dist += Math.max(advance, 0);
-
-    /* —— 转向 ——
-       grip：低速不再发木（旧 0.45+0.55r → 新 0.60+0.40r）
-       hispd：接近极速时折减横移，避免"甩尾式"瞬移
-       LAG  ：跟随系数 9 → 14，时间常数 111ms → 71ms，这是"跟手"的关键 */
+    // —— 转向：屏幕右侧滑动（比例 -1~1）+ 键盘 ——
     var steerInput = 0;
     if (input.drag) steerInput = input.drag.lx;
     if (input.kLeft) steerInput -= 1;
     if (input.kRight) steerInput += 1;
     steerInput = clamp(steerInput, -1, 1);
-    var sr = clamp(Math.abs(speed) / CFG.MAX_SPEED, 0, 1.4);
-    var grip = 0.60 + 0.40 * clamp(sr, 0, 1);
-    var hispd = 1 - (1 - CFG.STEER_HISPD_CAP) * clamp((sr - 0.75) / 0.65, 0, 1);
-    var targetLat = steerInput * CFG.STEER_RATE * grip * hispd;
-    // 车道辅助（默认关）：松手后缓慢回到中线，避免一直贴着路缘跑
-    if (steerInput === 0 && CFG.ASSIST_ON) {
-      targetLat = clamp(-lateral / 2.2, -1, 1) * CFG.ASSIST_RATE;
-    }
+    // 轮胎抓地随车速变化：低速转向钝、高速转向灵（v0.13.1：抬高低速段 0.45→0.60，起步/中速不再"转不动"）
+    var grip = 0.60 + 0.40 * clamp(Math.abs(speed) / CFG.MAX_SPEED, 0, 1);
+    var targetLat = steerInput * CFG.STEER_RATE * grip;
     lateralVel += (targetLat - lateralVel) * Math.min(1, dt * CFG.STEER_LAG);
     lateral += lateralVel * dt;
     // 越过路缘 = 被挡住（不会开到草地上）
@@ -1495,24 +1280,6 @@
     // 轮子滚动（按速度推角速度）
     var angV = speed / 3.6 / 0.33; // rad/s
     wheelSpin.forEach(function (ws) { ws.ang = (ws.ang || 0) + angV * dt; ws.grp.children[0].rotation.x = ws.ang; });
-    // —— v0.14.0 车底假阴影：跟着车走，让车不再像"贴"在路面上 ——
-    if (carShadow) {
-      carShadow.position.set(px, 0.05, pz);
-      carShadow.rotation.x = -Math.PI / 2;
-      carShadow.rotation.y = samp.yaw;
-    }
-    // —— v0.14.0 车灯光斑：贴在车头前方（"近处亮、远处淡"），夜晚/雨天可见 ——
-    if (headBeam && headBeam.visible) {
-      headBeam.position.set(px + samp.tan.x * 15, 0.055, pz + samp.tan.z * 15);
-      headBeam.rotation.x = -Math.PI / 2;
-      headBeam.rotation.y = samp.yaw;
-    }
-    // —— v0.14.0 轮胎痕：重刹或大幅横移时留痕，按"行驶距离"采样避免高速时断成点 ——
-    var skidding = (thr < -0.35 && Math.abs(speed) > 25) || Math.abs(lateralVel) > 4.4;
-    if (skidding) {
-      skidAcc += Math.max(0, advance);
-      if (skidAcc >= 0.55) { skidAcc = 0; addSkid(px, pz, samp); }
-    } else skidAcc = 0;
     // 无敌闪烁（座舱视角/调试隐藏时始终不可见）
     playerGrp.visible = carVisible() && !(inv > 0 && Math.floor(time * 14) % 2 === 0);
   }
@@ -1583,197 +1350,6 @@
       // 烟雾随速度感：微摆
       t.rotation.z = Math.sin(time * 1.6 + t.userData.sBase * 0.1) * 0.02;
     });
-  }
-
-  /* ================================================================
-   * v0.14.0 新增：场景环境 / 雨 / 车底阴影 / 轮胎痕 / 车灯 / 动态分辨率
-   * ================================================================ */
-  var headBeam = null, skidAcc = 0;
-
-  /* —— 天空渐变重绘（切换场景时复用同一张 canvas/贴图）—— */
-  function paintSky(stops) {
-    if (!skyCtx) return;
-    var g = skyCtx.createLinearGradient(0, 0, 0, 256);
-    var pos = [0, 0.32, 0.60, 0.80, 1];
-    for (var i = 0; i < stops.length; i++) g.addColorStop(pos[i], stops[i]);
-    skyCtx.fillStyle = g; skyCtx.fillRect(0, 0, 8, 256);
-    if (skyTex) skyTex.needsUpdate = true;
-  }
-
-  /* —— 场景切换：白天 / 黄昏 / 夜晚 / 雨天 —— */
-  function applyEnv(name, silent) {
-    var e = ENV[name] || ENV.day;
-    paintSky(e.sky);
-    if (scene) {
-      scene.background = new THREE.Color(e.bg);
-      if (scene.fog) { scene.fog.color.setHex(e.fog); scene.fog.near = e.fogN; scene.fog.far = e.fogF; }
-      // 夜晚必须摘掉环境反射：PMREM 那张图等于"全天空光照"，
-      // 只压灯光的话草地/树/路面依旧是白天亮度（实测过，场景根本暗不下来）。
-      scene.environment = e.envMap ? envMapTex : null;
-    }
-    if (ambLight) ambLight.intensity = e.amb;
-    if (sunLight) { sunLight.intensity = e.sunI; sunLight.color.setHex(e.sunC); }
-    if (fillLight) fillLight.intensity = e.fill;
-    if (hemiLight) hemiLight.intensity = e.hemi;
-    if (sunSprite) sunSprite.visible = e.sunVis;
-    clouds.forEach(function (c) { c.visible = !!e.clouds; });   // 夜晚/雨天云是白的会很突兀
-    drawWindows(e.winLit);                                      // 楼群亮窗率
-    bMats.forEach(function (m) { m.emissiveIntensity = e.winGlow || 0; });
-    if (rainPts) rainPts.visible = e.rain;
-    if (headBeam) headBeam.visible = (name === 'night' || name === 'rain');
-    if (!silent) { prefs.env = name; savePrefs(); }
-  }
-
-  /* —— 雨：用 LineSegments 画"雨丝"，不用 Points。
-     Points 渲染出来是一颗颗圆点，看着像下雪；线段自带方向感才是雨。
-     每滴两个端点，落地后直接回到玩家上空 —— 等于"跟着车走的一场雨"。 —— */
-  function buildRain() {
-    var N = 1400, SPAN = 46;
-    var arr = new Float32Array(N * 6);
-    rainArr = new Float32Array(N);
-    for (var i = 0; i < N; i++) {
-      var x = (Math.random() - 0.5) * SPAN * 2;
-      var z = (Math.random() - 0.5) * SPAN * 2;
-      var y = Math.random() * 40;
-      var len = 1.1 + Math.random() * 1.7;
-      var b = i * 6;
-      arr[b] = x;            arr[b + 1] = y;       arr[b + 2] = z;
-      arr[b + 3] = x + 0.24; arr[b + 4] = y - len; arr[b + 5] = z;
-      rainArr[i] = 42 + Math.random() * 28;
-    }
-    var geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-    var mat = new THREE.LineBasicMaterial({ color: 0xd8e6f4, transparent: true, opacity: 0.44, fog: false });
-    rainPts = new THREE.LineSegments(geo, mat);
-    rainPts.frustumCulled = false;
-    rainPts.visible = false;
-    scene.add(rainPts);
-  }
-
-  function updateRain(dt) {
-    if (!rainPts || !rainPts.visible) return;
-    var p = rainPts.geometry.attributes.position.array;
-    var cx = playerGrp ? playerGrp.position.x : 0, cz = playerGrp ? playerGrp.position.z : 0;
-    for (var i = 0; i < rainArr.length; i++) {
-      var b = i * 6, dy = rainArr[i] * dt;
-      p[b + 1] -= dy; p[b + 4] -= dy;
-      if (p[b + 1] < 0) {                       // 落地 → 回到玩家上空重新下落
-        var ny = 34 + Math.random() * 14;
-        var nx = cx + (Math.random() - 0.5) * 92;
-        var nz = cz + (Math.random() - 0.5) * 92;
-        var len = 1.1 + Math.random() * 1.7;
-        p[b] = nx; p[b + 1] = ny; p[b + 2] = nz;
-        p[b + 3] = nx + 0.24; p[b + 4] = ny - len; p[b + 5] = nz;
-      }
-      // 水平方向跟着车走，避免雨只下在某一段路上
-      if (p[b] - cx > 52) { p[b] -= 104; p[b + 3] -= 104; }
-      else if (p[b] - cx < -52) { p[b] += 104; p[b + 3] += 104; }
-      if (p[b + 2] - cz > 52) { p[b + 2] -= 104; p[b + 5] -= 104; }
-      else if (p[b + 2] - cz < -52) { p[b + 2] += 104; p[b + 5] += 104; }
-    }
-    rainPts.geometry.attributes.position.needsUpdate = true;
-  }
-
-  /* —— 车底假阴影：一张径向渐变贴片。整个场景没开 shadowMap，
-     没有它车就像"贴"在路面上；加了它落地感立刻出来，成本≈0。 —— */
-  function buildShadow() {
-    var cv = document.createElement('canvas'); cv.width = 128; cv.height = 128;
-    var x = cv.getContext('2d');
-    var g = x.createRadialGradient(64, 64, 4, 64, 64, 62);
-    g.addColorStop(0, 'rgba(0,0,0,.60)');
-    g.addColorStop(0.52, 'rgba(0,0,0,.34)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
-    shadowTex = new THREE.CanvasTexture(cv);
-    carShadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.6, 6.6),
-      new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.9, fog: false })
-    );
-    carShadow.rotation.order = 'YXZ';          // 先绕 Y 转 yaw，再绕 X 压平 —— 顺序反了会歪
-    carShadow.rotation.x = -Math.PI / 2;
-    carShadow.renderOrder = 2;
-    scene.add(carShadow);
-  }
-
-  /* —— 轮胎痕：预分配 InstancedMesh 池，FIFO 复用，不产生 GC 抖动 —— */
-  var SKID_N = 200;
-  function buildSkid() {
-    var cv = document.createElement('canvas'); cv.width = 32; cv.height = 32;
-    var x = cv.getContext('2d');
-    var g = x.createRadialGradient(16, 16, 1, 16, 16, 15);
-    g.addColorStop(0, 'rgba(16,18,22,.60)');
-    g.addColorStop(0.6, 'rgba(16,18,22,.30)');
-    g.addColorStop(1, 'rgba(16,18,22,0)');
-    x.fillStyle = g; x.fillRect(0, 0, 32, 32);
-    var tex = new THREE.CanvasTexture(cv); tex.rotation = 0;
-    skidMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, opacity: 0.9 });
-    skidInst = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.5, 1.5), skidMat, SKID_N);
-    skidInst.frustumCulled = false;
-    skidInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    skidInst.renderOrder = 1;
-    var d = new THREE.Object3D();
-    d.position.set(0, -999, 0); d.updateMatrix();
-    for (var i = 0; i < SKID_N; i++) skidInst.setMatrixAt(i, d.matrix);
-    skidInst.instanceMatrix.needsUpdate = true;
-    scene.add(skidInst);
-  }
-
-  var skidDummy = new THREE.Object3D();
-  function addSkid(px, pz, samp) {
-    if (!skidInst) return;
-    skidDummy.rotation.order = 'YXZ';
-    // 后轮左右各一条；沿车头方向往回退 1.5m
-    for (var s = -1; s <= 1; s += 2) {
-      skidDummy.position.set(
-        px + samp.right.x * s * 0.82 - samp.tan.x * 1.5, 0.045,
-        pz + samp.right.z * s * 0.82 - samp.tan.z * 1.5
-      );
-      skidDummy.rotation.set(-Math.PI / 2, samp.yaw, 0);
-      skidDummy.updateMatrix();
-      skidInst.setMatrixAt(skidIdx, skidDummy.matrix);
-      skidIdx = (skidIdx + 1) % SKID_N;
-    }
-    skidInst.instanceMatrix.needsUpdate = true;
-  }
-
-  /* —— 车灯地面光斑：加色混合的渐变贴片，附在车头前方。
-     比真 SpotLight 便宜得多（不触发材质重编译），夜晚/雨天开启。 —— */
-  function buildHeadBeam() {
-    var cv = document.createElement('canvas'); cv.width = 64; cv.height = 128;
-    var x = cv.getContext('2d');
-    var g = x.createLinearGradient(0, 128, 0, 0);
-    g.addColorStop(0, 'rgba(255,246,214,.52)');
-    g.addColorStop(0.38, 'rgba(255,246,214,.22)');
-    g.addColorStop(1, 'rgba(255,246,214,0)');
-    x.fillStyle = g; x.fillRect(0, 0, 64, 128);
-    // 横向收边：不收的话贴片四角是硬的，路面上会出现一个"白方块"
-    x.globalCompositeOperation = 'destination-in';
-    var hg = x.createLinearGradient(0, 0, 64, 0);
-    hg.addColorStop(0, 'rgba(0,0,0,0)');
-    hg.addColorStop(0.3, 'rgba(0,0,0,.92)');
-    hg.addColorStop(0.7, 'rgba(0,0,0,.92)');
-    hg.addColorStop(1, 'rgba(0,0,0,0)');
-    x.fillStyle = hg; x.fillRect(0, 0, 64, 128);
-    x.globalCompositeOperation = 'source-over';
-    var t = new THREE.CanvasTexture(cv);
-    headBeam = new THREE.Mesh(
-      new THREE.PlaneGeometry(6.0, 30),
-      new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false,
-                                    blending: THREE.AdditiveBlending, fog: false, opacity: 0.9 })
-    );
-    headBeam.rotation.order = 'YXZ';
-    headBeam.rotation.x = -Math.PI / 2;
-    headBeam.renderOrder = 3;
-    headBeam.visible = false;
-    scene.add(headBeam);
-  }
-
-  /* —— 动态分辨率：帧率掉到 50 以下就降 pixelRatio，回升再逐步恢复。
-     迟滞 + 冷却，避免在阈值附近来回抖。 —— */
-  function currentPixelRatio() {
-    var base = Math.min(window.devicePixelRatio || 1, 2);
-    if (!prefs.dynres) return base;
-    return Math.max(1.0, Math.min(base, 1.5) * dynScale);
   }
 
   /* ======== HUD：速度仪表盘 / 路线图 / 里程 ======== */
@@ -1877,24 +1453,8 @@
     uiScore.textContent = Math.floor(score);
     if (uiGems) uiGems.textContent = gems;
     if (uiMile) uiMile.textContent = dist >= 1000 ? (dist / 1000).toFixed(2) + ' km' : Math.floor(dist) + ' m';
-    // 仪表/地图/能量条 20fps 足够，省电（同时避免每帧写 style 触发重排）
-    if (hudT >= 0.05) {
-      hudT = 0;
-      drawGauge(); drawMinimap();
-      if (uiNitroFill) uiNitroFill.style.width = Math.round(nitro * 100) + '%';
-      if (uiDmgFill) uiDmgFill.style.width = Math.round(clamp(crashDmg, 0, 1) * 100) + '%';
-      if (btnNitro) {
-        btnNitro.classList.toggle('empty', nitro < CFG.NITRO_MIN);
-        btnNitro.classList.toggle('on', nitroOn);
-      }
-      // 高速速度线：只改 opacity，贴图是静态生成的，无逐帧绘制成本
-      if (elSpeedLines) {
-        var lv = prefs.speedfx
-          ? clamp((Math.abs(speed) / CFG.MAX_SPEED - 0.55) / 0.45, 0, 1) * 0.62 + nitroFov * 0.5
-          : 0;
-        elSpeedLines.style.opacity = lv.toFixed(3);
-      }
-    }
+    // 仪表/地图 20fps 足够，省电
+    if (hudT >= 0.05) { hudT = 0; drawGauge(); drawMinimap(); }
   }
 
   /* ======== 主循环 ======== */
@@ -1923,8 +1483,6 @@
         comboN = fresh ? comboN + 1 : 1;
         comboT = CFG.GEM_COMBO_WIN;
         gems += 1;
-        // v0.14.0：每 25 颗宝石补一颗心（上限满血）—— 给"撞击只积累车损"配一个正向循环
-        if (gems % 25 === 0 && lives < CFG.LIVES) { lives += 1; updateLives(); vib(60); }
         var mult = comboN >= 10 ? 2 : (comboN >= 5 ? 1.5 : 1);
         var val = Math.round(CFG.GEM_SCORE * mult);
         score += val;
@@ -1971,10 +1529,7 @@
 
     // —— HUD：仪表盘 / 路线图 / 里程 ——
     updateHud(dt);
-    Audio.engineSpeed(ratio / 1.42 + 0.08 + (nitroOn ? 0.12 : 0));   // 氮气时引擎音更尖
-    Audio.windSpeed(ratio);                                          // 风噪随车速
-    Audio.tireSlip(Math.abs(lateralVel) > 3.2 ? (Math.abs(lateralVel) - 3.2) / 3.5 : 0);
-    updateRain(dt);
+    Audio.engineSpeed(ratio / 1.42 + 0.08);
     // —— 云层缓慢漂移 ——
     for (var ci = 0; ci < clouds.length; ci++) {
       var cl = clouds[ci];
@@ -1986,10 +1541,8 @@
     flushPopups();
   }
 
-  /* v0.14.0：撞车不再"直接掉命"。
-     改为 减速 + 更长无敌 + 累积车损；车损攒满 1 才扣一颗心（默认约撞 3 次），
-     左上角生命下方那条细进度条就是车损。节奏不再被一次失误打断。 */
   function onHit(a, cdx) {
+    lives -= 1;
     inv = CFG.INVINCIBLE;
     shake = 9; flash = 0.42;
     Audio.crash();
@@ -2001,29 +1554,16 @@
     if (lateral < -CFG.STEER_MAX_OFFSET) lateral = -CFG.STEER_MAX_OFFSET;
     comboN = 0; comboT = 0;
     burst(a.mesh.position.x, 0.7, a.mesh.position.z, 12);
-    crashDmg += CFG.CRASH_DMG;
-    if (crashDmg >= 1) {                       // 车损攒满 → 扣一颗心
-      crashDmg -= 1; lives -= 1; updateLives(); vib(150);
-    }
     if (lives <= 0) gameOver();
   }
 
   function gameOver() {
     state = 'over'; overT = 0;
-    Audio.stopEngine(); Audio.stopAir(); Audio.crash(); vib(90);
+    Audio.stopEngine(); Audio.crash(); vib(90);
     if (playerGrp) playerGrp.visible = carVisible();
     uiFinalS.textContent = Math.floor(score);
     uiFinalD.textContent = Math.floor(dist);
     uiFinalG.textContent = gems;
-    // —— 本地最佳记录（结算页显示本局 vs 最佳）——
-    var isNew = false;
-    if (Math.floor(dist) > best.dist) { best.dist = Math.floor(dist); isNew = true; }
-    if (Math.floor(score) > best.score) { best.score = Math.floor(score); isNew = true; }
-    saveBest();
-    if (uiBestD) uiBestD.textContent = best.dist;
-    if (uiBestS) uiBestS.textContent = best.score;
-    if (uiNewBest) uiNewBest.textContent = isNew ? '新纪录！' : '';
-    crashDmg = 0; nitroOn = false;
     setViewVisible(false);
     over.classList.remove('hidden');
   }
@@ -2044,18 +1584,6 @@
     lastTm = ts;
     ensureSize();                 // 每帧核对画布尺寸（首帧视口为 0 / 旋转后失配）
     if (!scene) { return; }       // 场景还没建好
-    /* —— v0.14.0 动态分辨率：每 1.2s 统计一次帧率，掉到 50 以下就降 pixelRatio，
-          回到 57 以上再逐步加回来。迟滞 + 冷却，避免在阈值附近来回抖。 —— */
-    if (prefs.dynres && renderer) {
-      dynAcc += dt; dynN++;
-      if (dynAcc >= 1.2) {
-        var fpsNow = dynN / dynAcc;
-        dynAcc = 0; dynN = 0;
-        if (dynCool > 0) dynCool--;
-        else if (fpsNow < 50 && dynScale > 0.68) { dynScale = Math.max(0.68, dynScale - 0.16); dynCool = 2; resize(); }
-        else if (fpsNow > 57 && dynScale < 1) { dynScale = Math.min(1, dynScale + 0.16); dynCool = 3; resize(); }
-      }
-    }
     // 诊断：帧率与渲染次数（每 1s 刷新一次 DOM）
     if (window.__diag) {
       __fpsN++;
@@ -2094,8 +1622,7 @@
       updateHud(dt);
       render();
     } else {
-      // v0.14.0：暂停时逻辑与计时全部冻结（旧版只是停引擎音，车还在跑）
-      if (!paused) update(dt);
+      update(dt);
       render();
     }
   }
@@ -2113,14 +1640,12 @@
 
   /* ======== UI ======== */
   function updateLives() {
-    if (!uiLives) return;
     uiLives.innerHTML = '';
-    for (var i = 0; i < CFG.LIVES; i++) {
+    for (var i = 0; i < 3; i++) {
       var h = document.createElement('div');
       h.className = 'heart' + (i < lives ? '' : ' off');
       uiLives.appendChild(h);
     }
-    if (uiDmgFill) uiDmgFill.style.width = Math.round(clamp(crashDmg, 0, 1) * 100) + '%';
   }
 
   function startRun() {
@@ -2133,14 +1658,13 @@
     state = 'run';
     setViewVisible(true);
     if (playerGrp) { playerGrp.visible = carVisible(); }   // state 已切到 run，座舱视角此处再收敛一次
-    Audio.startEngine(); Audio.startAir(); vib(10);
+    Audio.startEngine(); vib(10);
   }
 
   function toggleMute() {
     var m = Audio.toggle();
-    prefs.muted = m; savePrefs();        // 静音偏好持久化
-    var bs = $('btnSound');
-    if (bs) { bs.textContent = m ? '\u266A' : '\u266B'; bs.style.opacity = m ? 0.5 : 1; }
+    $('btnSound').textContent = m ? '\u266A' : '\u266B';
+    $('btnSound').style.opacity = m ? 0.5 : 1;
   }
 
   /* ======== 初始化 ======== */
@@ -2160,8 +1684,7 @@
     dpr = window.devicePixelRatio || 1;
     if (window.__diag) window.__diag.size = W + 'x' + H + '@' + dpr;
     if (!renderer || !W || !H) return;
-    // 动态分辨率：帧率低时 currentPixelRatio() 会返回更小的值（见 updateDynRes）
-    renderer.setPixelRatio(currentPixelRatio());
+    renderer.setPixelRatio(Math.min(dpr, 2));
     // 同步写 canvas 的 CSS 尺寸，并配合 CSS 100%，让画布严格等于视口
     // （旧代码 setSize(W,H,false) 不写样式，高 DPR 下 canvas 按物理像素撑开 → 只看到一角）
     renderer.setSize(W, H);
@@ -2178,228 +1701,9 @@
     if (!W || !H || m.w !== W || m.h !== H || !renderer) resize();
   }
 
-  /* ======== 启动进度条 ======== */
-  function setBoot(pct, label) {
-    if (bootFill) bootFill.style.width = pct + '%';
-    if (bootTxt && label) bootTxt.textContent = label;
-  }
-  function hideBoot() { if (elBoot) elBoot.classList.add('hidden'); }
-
-  /* 高速速度线贴图：一次性生成径向白线，之后只改 opacity，零逐帧开销 */
-  function buildSpeedLines() {
-    if (!elSpeedLines) return;
-    try {
-      var cv = document.createElement('canvas'); cv.width = 512; cv.height = 288;
-      var x = cv.getContext('2d'), cx = 256, cy = 144;
-      x.lineCap = 'round';
-      for (var i = 0; i < 190; i++) {
-        var a = Math.random() * 6.284;
-        var r0 = 85 + Math.random() * 95;
-        var r1 = r0 + 45 + Math.random() * 150;
-        x.strokeStyle = 'rgba(255,255,255,' + (0.16 + Math.random() * 0.5).toFixed(2) + ')';
-        x.lineWidth = 0.6 + Math.random() * 2.0;
-        x.beginPath();
-        x.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
-        x.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
-        x.stroke();
-      }
-      elSpeedLines.style.backgroundImage = 'url(' + cv.toDataURL('image/png') + ')';
-    } catch (e) { }
-  }
-
-  /* —— 偏好 → DOM / 引擎 —— */
-  function syncTgl(el, on) { if (el) el.classList.toggle('on', !!on); }
-  function applyPrefsToUi() {
-    document.body.classList.toggle('lefty', !!prefs.lefty);
-    CFG.ASSIST_ON = !!prefs.assist;
-    Audio.muted = !!prefs.muted;
-    if (Audio.master) Audio.master.gain.value = prefs.muted ? 0 : 0.5;
-    var bs = $('btnSound');
-    if (bs) { bs.textContent = prefs.muted ? '\u266A' : '\u266B'; bs.style.opacity = prefs.muted ? 0.5 : 1; }
-    var g = $('setGyro'), d = $('setDead');
-    if (g) { g.value = Math.round(prefs.gyroSens * 100); if ($('setGyroV')) $('setGyroV').textContent = g.value; }
-    if (d) { d.value = prefs.dead; if ($('setDeadV')) $('setDeadV').textContent = d.value; }
-    syncTgl($('setAssist'), prefs.assist);
-    syncTgl($('setLefty'), prefs.lefty);
-    syncTgl($('setDynres'), prefs.dynres);
-    syncTgl($('setSpeedfx'), prefs.speedfx);
-    var segs = document.querySelectorAll('#setEnv .seg');
-    for (var i = 0; i < segs.length; i++) {
-      segs[i].classList.toggle('on', segs[i].getAttribute('data-env') === prefs.env);
-    }
-    if (!prefs.speedfx && elSpeedLines) elSpeedLines.style.opacity = '0';
-    viewMode = (prefs.view === 'cockpit') ? COCKPIT : CHASE;
-    if (playerGrp) setViewUI();
-    dynScale = 1;
-  }
-
-  /* —— 暂停 / 返回主菜单 —— */
-  function togglePause() {
-    if (state !== 'run') return;
-    paused = !paused;
-    if (elPause) elPause.classList.toggle('show', paused);
-    if (paused) { Audio.stopEngine(); Audio.stopAir(); }
-    else { Audio.ensure(); Audio.startEngine(); Audio.startAir(); }
-  }
-  function toMenu() {
-    paused = false;
-    if (elPause) elPause.classList.remove('show');
-    if (elSettings) elSettings.classList.remove('show');
-    state = 'menu';
-    Audio.stopEngine(); Audio.stopAir();
-    over.classList.add('hidden');
-    menu.classList.remove('hidden');
-    setViewVisible(false);
-    resetRun();
-  }
-
-  /* —— 事件绑定（原 boot 尾部的监听全搬到这里）—— */
-  function bindUi() {
-    window.addEventListener('resize', resize);
-    window.addEventListener('orientationchange', function () {
-      // Android WebView 旋转后 innerWidth 会延迟更新，多补两次
-      setTimeout(resize, 60); setTimeout(resize, 260); setTimeout(resize, 600);
-    });
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
-    // v0.14.0：切后台自动暂停（旧版只停引擎音，回来时车已经"跑"了很远）
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden && state === 'run' && !paused) togglePause();
-    });
-    function on(id, fn) { var el = $(id); if (el) el.addEventListener('click', fn); }
-    on('btnSound', toggleMute);
-    on('btnStart', function () { Audio.ensure(); startRun(); });
-    on('btnAgain', function () { Audio.ensure(); startRun(); });
-    on('btnPause', togglePause);
-    on('btnResume', togglePause);
-    on('btnRestart', function () { if (paused) togglePause(); startRun(); });
-    on('btnToMenu', toMenu);
-    on('btnSet', function () { if (elSettings) elSettings.classList.add('show'); });
-    on('btnSetClose', function () { if (elSettings) elSettings.classList.remove('show'); savePrefs(); });
-    on('setAssist', function () { prefs.assist = !prefs.assist; CFG.ASSIST_ON = prefs.assist; syncTgl($('setAssist'), prefs.assist); savePrefs(); });
-    on('setLefty', function () { prefs.lefty = !prefs.lefty; document.body.classList.toggle('lefty', prefs.lefty); syncTgl($('setLefty'), prefs.lefty); savePrefs(); });
-    on('setDynres', function () { prefs.dynres = !prefs.dynres; dynScale = 1; syncTgl($('setDynres'), prefs.dynres); savePrefs(); resize(); });
-    on('setSpeedfx', function () {
-      prefs.speedfx = !prefs.speedfx; syncTgl($('setSpeedfx'), prefs.speedfx); savePrefs();
-      if (!prefs.speedfx && elSpeedLines) elSpeedLines.style.opacity = '0';
-    });
-    var gs = $('setGyro');
-    if (gs) gs.addEventListener('input', function () {
-      prefs.gyroSens = (+gs.value) / 100;
-      if ($('setGyroV')) $('setGyroV').textContent = gs.value;
-      savePrefs();
-    });
-    var ds = $('setDead');
-    if (ds) ds.addEventListener('input', function () {
-      prefs.dead = +ds.value;
-      if ($('setDeadV')) $('setDeadV').textContent = ds.value;
-      savePrefs();
-    });
-    var segs = document.querySelectorAll('#setEnv .seg');
-    for (var i = 0; i < segs.length; i++) {
-      (function (b) {
-        b.addEventListener('click', function () {
-          applyEnv(b.getAttribute('data-env'));
-          for (var j = 0; j < segs.length; j++) segs[j].classList.toggle('on', segs[j] === b);
-        });
-      })(segs[i]);
-    }
-  }
-
-  /* ?dump=1：赛道采样诊断（段长异常 / 起点附近采样与朝向） */
-  function dumpTrackDiag() {
-    var segs = [], mxS = 0, mxi = 0;
-    for (var di = 0; di < trackSamples.length; di++) {
-      var a1 = trackSamples[di].p, b1 = trackSamples[(di + 1) % trackSamples.length].p;
-      var dd1 = a1.distanceTo(b1); segs.push(dd1);
-      if (dd1 > mxS) { mxS = dd1; mxi = di; }
-    }
-    var avgS = totalLen / trackSamples.length, outs = [];
-    for (var oi = 0; oi < segs.length; oi++) if (segs[oi] > avgS * 2.5) outs.push(oi + ':' + segs[oi].toFixed(1));
-    window.__diagLog('[ERR] DUMP avg=' + avgS.toFixed(2) + ' max=' + mxS.toFixed(2) + '@' + mxi +
-      ' L=' + totalLen.toFixed(1) + ' N=' + trackSamples.length + ' outliers[' + outs.join(',') + ']');
-    var near2 = [];
-    for (var ni = -3; ni <= 3; ni++) {
-      var ii = ((ni % trackSamples.length) + trackSamples.length) % trackSamples.length;
-      var sm3 = trackSamples[ii];
-      near2.push(ii + 'p(' + sm3.p.x.toFixed(1) + ',' + sm3.p.z.toFixed(1) + ')r(' + sm3.right.x.toFixed(2) + ',' + sm3.right.z.toFixed(2) + ')');
-    }
-    window.__diagLog('[ERR] NEAR ' + near2.join(' '));
-  }
-
-  /* 启动收尾：调试开关 + 起渲染循环 */
-  function finishBoot() {
-    setBoot(100, '开始！');
-    // 调试：?gas=1 持续油门（配合 autostart 做自动化画面验证）
-    if (/[?&]gas=1\b/.test(location.search)) input.gas = true;
-    // 调试：?nitro=1 持续氮气（验证能量条 / FOV 冲击 / 速度线）
-    if (/[?&]nitro=1\b/.test(location.search)) input.nitro = true;
-    // 调试：?brake=1 持续刹车（验证轮胎痕）
-    if (/[?&]brake=1\b/.test(location.search)) input.brake = true;
-    // 调试：?steer=1 持续满舵右转（验证转向灵敏度 + 轮胎痕）
-    if (/[?&]steer=1\b/.test(location.search)) input.drag = { sx: 0, sy: 0, lx: 1 };
-    if (/[?&]autostart=1\b/.test(location.search)) { Audio.ensure(); startRun(); }
-    var q = /[?&]view=(\w+)/.exec(location.search);
-    if (q && q[1] === 'cockpit') { viewMode = COCKPIT; setViewUI(); }
-    // 调试：?ff=N 快进 N 秒。无头 Chrome 在页面 load 完成时立即截图（拿不到"运行中"的画面），
-    //       这里同步跑 N*60 帧把车开到中途，用于离线验证 速度/里程/仪表盘/路线图/转弯 是否真的动。
-    var ffm = /[?&]ff=(\d+)/.exec(location.search);
-    if (ffm && state === 'run') {
-      var ffs = Math.min(parseInt(ffm[1], 10) || 0, 180);
-      for (var fi = 0; fi < ffs * 60; fi++) update(1 / 60);
-    }
-    // 调试：?env=night 直接切场景
-    var qe = /[?&]env=(\w+)/.exec(location.search);
-    if (qe && ENV[qe[1]]) applyEnv(qe[1], true);
-    // 调试：?panel=settings|pause 直接打开面板（截图验证用）。
-    // 必须放在 autostart 之后 —— togglePause 在非 run 状态会直接返回。
-    var qp = /[?&]panel=(\w+)/.exec(location.search);
-    if (qp && qp[1] === 'settings' && elSettings) elSettings.classList.add('show');
-    if (qp && qp[1] === 'pause') togglePause();
-    // 调试：?hide=car|gem|post|prop 逐组排除（定位"画面里的陌生几何"）
-    if (/[?&]hide=car\b/.test(location.search) && playerGrp) { playerGrp.visible = false; carHiddenByDebug = true; }
-    // 调试：?inspect=1 列出玩家周围 45m 内的场景对象（含 Sprite/InstancedMesh）+ 索引
-    if (/[?&]inspect=1\b/.test(location.search) && playerGrp) {
-      var out2 = [];
-      scene.children.forEach(function (o, idx) {
-        var bx3 = new THREE.Box3();
-        try { bx3.setFromObject(o); } catch (e4) { return; }
-        if (!isFinite(bx3.min.x)) return;
-        var ct3 = bx3.getCenter(new THREE.Vector3()), sz3 = bx3.getSize(new THREE.Vector3());
-        var d3 = ct3.distanceTo(playerGrp.position);
-        if (d3 - sz3.length() / 2 < 45) {
-          out2.push(idx + ':' + o.type + (o.geometry ? '/' + o.geometry.type : '') +
-            (o.material ? ('#' + (o.material.color ? o.material.color.getHexString() : '-') + (o.material.vertexColors ? 'VC' : '') + (o.material.map ? 'MAP' : '')) : '') +
-            ' sz' + sz3.x.toFixed(0) + 'x' + sz3.y.toFixed(0) + 'x' + sz3.z.toFixed(0) + ' d' + d3.toFixed(0));
-        }
-      });
-      window.__diagLog('[ERR] LIST(' + scene.children.length + ') ' + out2.join(' | '));
-    }
-    // 调试：?only=N（只显示索引 N 的对象 + 路面 23；灯光始终保留）——单个对象逐一确认
-    var on3 = /[?&]only=(\d+)/.exec(location.search);
-    if (on3) {
-      var keep3 = +on3[1];
-      scene.children.forEach(function (o, i) {
-        if (o.isLight) return;
-        o.visible = (i === keep3 || i === 23);
-      });
-    }
-    lastTm = performance.now();
-    window.__booted = true;
-    if (window.__diagLog) window.__diagLog('启动完成，进入渲染循环');
-    requestAnimationFrame(frame);
-    // ?sync=1 时同步收起遮罩：异步隐藏会和 headless 的截图时机打架（抓到的全是进度条）
-    if (/[?&]sync=1\b/.test(location.search)) hideBoot();
-    else setTimeout(hideBoot, 140);
-  }
-
-  /* ======== 分阶段启动 ========
-     旧版把 buildTrack/buildScene/buildCityBlocks 全塞在一次同步调用里，
-     屏幕在这几百毫秒~1 秒里完全是黑的（低端机更久），体验上像卡死。
-     现在每步之间让出主线程，进度条才能真正画出来。 */
   function boot() {
     resize();
     if (!SUPPORTED) {
-      hideBoot();
       if (window.__diagLog) window.__diagLog('WebGL 不可用 → 交给兼容模式渲染');
       var box = document.createElement('div');
       box.className = 'no-webgl';
@@ -2407,64 +1711,102 @@
       menu.appendChild(box);
       return;
     }
-    loadPrefs(); loadBest();
-    // 调试：?lefty=1 / ?assist=1 覆盖偏好（截图验证用）
-    if (/[?&]lefty=1\b/.test(location.search)) prefs.lefty = true;
-    if (/[?&]assist=1\b/.test(location.search)) prefs.assist = true;
-    var steps = [
-      [16, '正在生成赛道…', function () {
-        buildTrack();
-        if (/[?&]dump=1\b/.test(location.search)) dumpTrackDiag();
-      }],
-      [40, '正在搭建场景…', function () {
-        buildScene(); buildShadow(); buildSkid(); buildRain(); buildHeadBeam(); buildSpeedLines();
-      }],
-      [58, '正在生成城市…', function () { buildCityBlocks(); }],
-      [72, '正在准备车辆…', function () {
-        playerGrp = playerCar();
-        scene.add(playerGrp);
-        seatCam = new THREE.Object3D();
-        seatCam.position.copy(CFG.COCKPIT_OFFSET);
-        seatCam.rotation.x = -0.05;   // 略微下俯，越过引擎盖看清前方路面
-        playerGrp.add(seatCam);
-        var initSamp = sampleAtS(0);
-        playerGrp.position.set(initSamp.pos.x, 0, initSamp.pos.z);
-        playerGrp.rotation.y = initSamp.yaw;
-      }],
-      [86, '正在应用设置…', function () {
-        resetRun();
-        state = 'menu';
-        setViewVisible(false);
-        applyEnv(prefs.env, true);       // 按上次选择恢复白天/黄昏/夜晚/雨天
-        applyPrefsToUi();
-        setupGyro();
-        bindUi();
-        if (uiBestD) uiBestD.textContent = best.dist;
-        if (uiBestS) uiBestS.textContent = best.score;
-      }],
-      [97, '即将开始…', function () { finishBoot(); }]
-    ];
-    /* ⚠️ 无头 Chrome 的 --screenshot 是在 load 事件后立刻抓的（--timeout 只是"最多等多久"，
-       不是"等这么久"），异步分步会导致抓到一个还没启动完的画面。
-       故提供 ?sync=1 让所有步骤同步跑完 —— 只影响调试，真机始终走带进度条的分步路径。 */
-    var syncBoot = /[?&]sync=1\b/.test(location.search);
-    var si = 0;
-    function nextStep() {
-      while (si < steps.length) {
-        var st = steps[si++];
-        setBoot(st[0], st[1]);
-        try {
-          st[2]();
-        } catch (err) {
-          showFatal(err);
-          if (window.__diagLog) window.__diagLog('启动异常：' + ((err && err.message) || err));
-          hideBoot();
-          return;
+    try {
+      buildTrack();
+      // 调试：?dump=1 输出赛道采样诊断（段长异常 / 起点附近采样与朝向）
+      if (/[?&]dump=1\b/.test(location.search)) {
+        var segs = [], mxS = 0, mxi = 0;
+        for (var di = 0; di < trackSamples.length; di++) {
+          var a1 = trackSamples[di].p, b1 = trackSamples[(di + 1) % trackSamples.length].p;
+          var dd1 = a1.distanceTo(b1); segs.push(dd1);
+          if (dd1 > mxS) { mxS = dd1; mxi = di; }
         }
-        if (!syncBoot) { setTimeout(nextStep, 0); return; }   // 让出主线程，进度条才画得出来
+        var avgS = totalLen / trackSamples.length, outs = [];
+        for (var oi = 0; oi < segs.length; oi++) if (segs[oi] > avgS * 2.5) outs.push(oi + ':' + segs[oi].toFixed(1));
+        window.__diagLog('[ERR] DUMP avg=' + avgS.toFixed(2) + ' max=' + mxS.toFixed(2) + '@' + mxi +
+          ' L=' + totalLen.toFixed(1) + ' N=' + trackSamples.length + ' outliers[' + outs.join(',') + ']');
+        var near2 = [];
+        for (var ni = -3; ni <= 3; ni++) {
+          var ii = ((ni % trackSamples.length) + trackSamples.length) % trackSamples.length;
+          var sm3 = trackSamples[ii];
+          near2.push(ii + 'p(' + sm3.p.x.toFixed(1) + ',' + sm3.p.z.toFixed(1) + ')r(' + sm3.right.x.toFixed(2) + ',' + sm3.right.z.toFixed(2) + ')');
+        }
+        window.__diagLog('[ERR] NEAR ' + near2.join(' '));
       }
+      buildScene();
+      buildCityBlocks();
+      playerGrp = playerCar();
+      scene.add(playerGrp);
+      seatCam = new THREE.Object3D();
+      seatCam.position.copy(CFG.COCKPIT_OFFSET);
+      seatCam.rotation.x = -0.05;   // v6.0：略微下俯，越过引擎盖看清前方路面（不俯太多以免车身占满画面）
+      playerGrp.add(seatCam);
+      var initSamp = sampleAtS(0);
+      playerGrp.position.set(initSamp.pos.x, 0, initSamp.pos.z);
+      playerGrp.rotation.y = initSamp.yaw;
+      resetRun();
+      state = 'menu';
+      setViewVisible(false);
+      setupGyro();
+      window.addEventListener('resize', resize);
+      window.addEventListener('orientationchange', function () {
+        // Android WebView 旋转后 innerWidth 会延迟更新，多补两次
+        setTimeout(resize, 60); setTimeout(resize, 260); setTimeout(resize, 600);
+      });
+      if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+      document.addEventListener('visibilitychange', function () { if (document.hidden) Audio.stopEngine(); });
+      $('btnSound').addEventListener('click', toggleMute);
+      $('btnStart').addEventListener('click', function () { Audio.ensure(); startRun(); });
+      $('btnAgain').addEventListener('click', function () { Audio.ensure(); startRun(); });
+      btnView.addEventListener('click', cycleView);
+      var q = /[?&]view=(\w+)/.exec(location.search);
+      if (q && q[1] === 'cockpit') { viewMode = COCKPIT; setViewUI(); }
+      if (/[?&]autostart=1\b/.test(location.search)) { Audio.ensure(); startRun(); }  // 同步启动（headless 截图验证用；60ms 定时器在 headless 会被节流）
+      // 调试：?gas=1 持续油门（配合 autostart 做自动化画面验证）
+      if (/[?&]gas=1\b/.test(location.search)) input.gas = true;
+      // 调试：?ff=N 快进 N 秒。无头 Chrome 在页面 load 完成时立即截图（拿不到"运行中"的画面），
+      //       这里同步跑 N*60 帧把车开到中途，用于离线验证 速度/里程/仪表盘/路线图/转弯 是否真的动。
+      var ffm = /[?&]ff=(\d+)/.exec(location.search);
+      if (ffm && state === 'run') {
+        var ffs = Math.min(parseInt(ffm[1], 10) || 0, 180);
+        for (var fi = 0; fi < ffs * 60; fi++) update(1 / 60);
+      }
+      // 调试：?hide=car|gem|post|prop 逐组排除（定位"画面里的陌生几何"）
+      if (/[?&]hide=car\b/.test(location.search) && playerGrp) { playerGrp.visible = false; carHiddenByDebug = true; }
+      // 调试：?inspect=1 列出玩家周围 45m 内的场景对象（含 Sprite/InstancedMesh）+ 索引
+      if (/[?&]inspect=1\b/.test(location.search) && playerGrp) {
+        var out2 = [];
+        scene.children.forEach(function (o, idx) {
+          var bx3 = new THREE.Box3();
+          try { bx3.setFromObject(o); } catch (e4) { return; }
+          if (!isFinite(bx3.min.x)) return;
+          var ct3 = bx3.getCenter(new THREE.Vector3()), sz3 = bx3.getSize(new THREE.Vector3());
+          var d3 = ct3.distanceTo(playerGrp.position);
+          if (d3 - sz3.length() / 2 < 45) {
+            out2.push(idx + ':' + o.type + (o.geometry ? '/' + o.geometry.type : '') +
+              (o.material ? ('#' + (o.material.color ? o.material.color.getHexString() : '-') + (o.material.vertexColors ? 'VC' : '') + (o.material.map ? 'MAP' : '')) : '') +
+              ' sz' + sz3.x.toFixed(0) + 'x' + sz3.y.toFixed(0) + 'x' + sz3.z.toFixed(0) + ' d' + d3.toFixed(0));
+          }
+        });
+        window.__diagLog('[ERR] LIST(' + scene.children.length + ') ' + out2.join(' | '));
+      }
+      // 调试：?only=N（只显示索引 N 的对象 + 路面 23；灯光始终保留）——单个对象逐一确认
+      var on3 = /[?&]only=(\d+)/.exec(location.search);
+      if (on3) {
+        var keep3 = +on3[1];
+        scene.children.forEach(function (o, i) {
+          if (o.isLight) return;
+          o.visible = (i === keep3 || i === 23);
+        });
+      }
+      lastTm = performance.now();
+      window.__booted = true;
+      if (window.__diagLog) window.__diagLog('启动完成，进入渲染循环');
+      requestAnimationFrame(frame);
+    } catch (err) {
+      showFatal(err);
+      if (window.__diagLog) window.__diagLog('启动异常：' + ((err && err.message) || err));
     }
-    nextStep();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
