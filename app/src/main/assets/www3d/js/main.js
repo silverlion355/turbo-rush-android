@@ -65,17 +65,64 @@
     DMG_SLOW: 0.14,         // 满损时极速打 86 折
     GEM_SCORE: 60, GEM_COMBO_WIN: 1.8,
     TRACK_N: 600, LOOP_KM_H: 200,
-    /* —— v0.13.3 大气（C 包 / 第 1 步：雾 + 天空）——
-       ⚠️ 核心约束：雾色必须【等于】天空地平线那一圈的颜色。
-       否则远处的草地/路面被雾染成雾色后，会在地平线处与天空撞出一条
-       明显的浅色横带（旧版雾色 #cfe4f0 偏暗偏蓝、天空地平线 #b6daf4 偏亮，
-       两者不同 → 远处能看出"一条带子"）。
-       FOG_FAR 同时放大：旧 640m 意味着 640m 外全是纯雾色（一块死板的色板），
-       现在 980m 才到纯雾色，地面是"渐隐"而不是"戛然而止"。 */
-    FOG_NEAR: 130, FOG_FAR: 980, FOG_COLOR: 0xd8e9f6,
+    /* ======== v0.13.4 统一大气透视（C 包第 1 步·重做）========
+
+       【上一版（v0.13.3）为什么反而更假 —— 诊断】
+       修好贴图色彩空间后，颜色回到正确饱和度，于是暴露出一件一直被
+       "贴图偏亮"糊住的事：场景根本没有纵深。实测证据：
+         · 左侧那座山在屏幕上 y=80..250 连续 170px 全是同一个值 #527090，
+           相邻亮度变化 0.0 —— 因为它同时踩了两个坑：
+           ConeGeometry(r,h,5) + flatShading（5 边形锥体每面只有一个法线，
+           整面一个颜色）以及 fog:false（连雾都不参与）。山不是山，是纸片。
+         · shadowMap / castShadow / receiveShadow 在 3800 行代码里出现 0 次。
+         · 抽样 0.30% 的像素有通道 ≥254（高光直接削顶）。
+
+       【真正的病根：三套互不兼容的"距离规则"】
+         山          fog:false                → 完全不衰减，800m 外和 50m 一样饱和
+         城市/草地/路面 THREE.Fog(130→980)    → 线性淡出，980m 外全是同一块死色
+         云/太阳/天空  fog:false                → 完全不衰减
+       三条不同形状的曲线拼在一张画面上，眼睛读到的就是"拼贴"。
+       真实世界只有【一条】曲线：越远 → 越淡、越低饱和、越接近地平线色。
+
+       【本版做法：一条公式，所有远景共用】
+         atmFactor(d) = 1 - exp(-(density·d)²)      ← 与 THREE.FogExp2 内部公式逐字一致
+         能按顶点算距离的（草地/路面/城市/植被）→ 交给 scene.fog = FogExp2
+         距离是固定已知的（远山/云）→ 用 atmColor() 把同一个 factor 烘焙进颜色
+       两条路径用同一个 density、同一个地平线色 → 视觉上是同一条曲线。
+       ⚠️ 远山保持 fog:false 是【故意的】：烘焙已经包含了大气衰减，
+          再让 FogExp2 叠一次就是双重雾化，远山会被吃没。
+
+       【雾色必须等于天空地平线色】
+         否则远处草地被染成雾色后，会在地平线处与天空撞出一条浅色横带。
+
+       调试开关：
+         ?atm=off     关闭大气衰减（远山恢复满饱和，用于 A/B 对照）
+         ?hide=mtn    不要远山      ?hide=cloud  不要云      ?hide=sky 露出背景色
+         ?tm=aces|reinhard|cineon|linear|none   切换色调映射
+         ?exp=N       灯光总曝光     ?texp=N      色调映射曝光 */
+    FOG_COLOR: 0xd8e9f6,
     SKY_HORIZON: 0xd8e9f6,              // ← 必须与 FOG_COLOR 同色（改一处请改两处）
     SKY_ZENITH: 0x1a5cb0,               // 天顶深蓝（渐变起点）
-    CLOUD_N: 14,                        // 云朵数量（?hide=cloud 可排除）
+    /* 大气密度：FogExp2 的 density。取值实测标定（factor = 1-exp(-(d·k)²)）：
+       k=0.0011 时  440m→0.24   1000m→0.72   2000m→0.99
+       这样近景（<300m，factor<0.10）几乎不受影响，远山则逐层化进天空。 */
+    ATM_DENSITY: 0.0011,
+    /* 远山最多向地平线色混合 95%，留 5% 本色 → 最远那层仍然"看得出是山"，
+       而不是彻底消失成一片平色。 */
+    ATM_MAX: 0.95,
+    /* 大气同时降饱和：真实霾不只变淡，还会把颜色抽掉。0.65 = 最远处保留 35% 饱和度 */
+    ATM_DESAT: 0.65,
+    /* 云朵数量（分大中小三层，见 buildScene）。?hide=cloud 可排除 */
+    CLOUD_N: 22,
+    /* —— 影像管线：色调映射 ——
+       旧版完全没开 tone mapping，高光在 1.0 处硬削平：云是"一抹纯白"、
+       天空是"一块平蓝"，没有任何明暗过渡。开 ACES 后高光滚降，
+       云才有体积感、天空才有亮度层次。
+       ACES 会整体抬亮中间调（约 ×1.5）并压暗高光，所以灯光曝光要相应回调
+       ——两者是耦合的，改一个要同时看另一个（下面 EXPOSURE 已按实测重标）。
+       可选值：aces / reinhard / cineon / linear / none（?tm= 覆盖） */
+    TONEMAP: 'aces',
+    TM_EXPOSURE: 1.0,
     /* —— v0.13.3 灯光总曝光补偿 ——
        修好贴图色彩空间后，所有"贴图面"（草地/路面/楼宇）不再被多提亮一次，
        于是暴露出一个一直存在、只是被掩盖的问题：**灯光本身是偏暗的**。
@@ -644,6 +691,42 @@
     return t;
   }
 
+  /* ======== v0.13.4 统一大气透视 ========
+     全场景【唯一】的距离衰减函数。任何物体想知道"我离视点 d 米，该被大气
+     冲淡多少"，都只能问这一个函数 —— 这是解决"拼贴感"的核心约束。
+
+     ⚠️ atmFactor 的公式必须与 THREE.FogExp2 内部实现逐字一致：
+        FogExp2 的 GLSL 是  fogFactor = 1.0 - exp(-fogDensity² · fogDepth²)
+        写成 JS 就是        1 - exp(-(density·d)²)
+     两条路径（逐顶点算 & 颜色烘焙）用同一条公式、同一个 density，
+     视觉上才是同一条曲线。改动这里必须同步检查 CFG.ATM_DENSITY。 */
+  var atmOff = /[?&]atm=off\b/.test(location.search);   // 调试：?atm=off 关闭大气衰减
+  var atmHorizon = new THREE.Color(CFG.SKY_HORIZON);   // 雾/地平线色（线性工作空间）
+
+  function atmFactor(d) {
+    if (atmOff) return 0;
+    var x = CFG.ATM_DENSITY * (d > 0 ? d : 0);
+    return 1 - Math.exp(-x * x);
+  }
+
+  /* 把一个"本色"按距离烘焙成"大气后的颜色"。
+     baseHex 是设计色（sRGB 十六进制，交给 THREE.Color 做 sRGB→线性 转换，
+     与车漆同一条正确路径）；dist 是该物体到视点的代表距离。
+     做两件事：①向地平线色靠拢 ②降饱和。
+     真实霾不只是"变白"，它是把颜色一起抽走，所以第②步不可省。 */
+  function atmColor(baseHex, dist) {
+    var c = new THREE.Color(baseHex);
+    if (atmOff) return c;
+    var f = atmFactor(dist);
+    c.lerp(atmHorizon, f * CFG.ATM_MAX);
+    var s = 1 - CFG.ATM_DESAT * f;
+    var lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    c.r = lum + (c.r - lum) * s;
+    c.g = lum + (c.g - lum) * s;
+    c.b = lum + (c.b - lum) * s;
+    return c;
+  }
+
   /* ======== WebGL 渲染器：多级降级创建 ========
      部分 Android WebView / 老 GPU 对 powerPreference:'high-performance'、
      antialias 支持不佳，会直接创建失败 → 表现为整屏黑。逐级退回最保守配置。 */
@@ -670,7 +753,12 @@
   function buildScene() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(CFG.SKY_HORIZON);
-    scene.fog = new THREE.Fog(CFG.FOG_COLOR, CFG.FOG_NEAR, CFG.FOG_FAR);
+    /* v0.13.4：线性 Fog(近,远) → FogExp2(密度)。
+       线性雾的问题是"120m 开始、980m 结束"这两条硬边界：
+       980m 之外不管多远都渲染成同一块纯色板，远山/云又完全不吃雾，
+       于是画面被切成几段互不衔接的色块。
+       FogExp2 全距离连续可导，近景几乎不受影响、远景平滑化进天空。 */
+    scene.fog = new THREE.FogExp2(CFG.FOG_COLOR, CFG.ATM_DENSITY);
 
     camera = new THREE.PerspectiveCamera(CFG.FOV, W / H, 0.1, 2400);
     camFov = CFG.FOV;
@@ -678,6 +766,29 @@
     if (!renderer) throw new Error('WebGLRenderer 创建失败（WebGL 上下文不可用）');
     renderer.setPixelRatio(Math.min(dpr, 2));
     renderer.setSize(W, H);
+
+    /* —— v0.13.4 影像管线：色调映射（必须在材质编译之前设置）——
+       旧版 renderer.toneMapping 始终保持默认的 NoToneMapping，
+       于是所有超过 1.0 的线性亮度被直接削平：云的顶部、太阳光晕、
+       白色车身都会变成一片没有细节的纯白；天空的亮度层次也被压掉。
+       开启后高光沿曲线滚降，云和天空重新获得明暗过渡。
+       用 try 包住：万一打包版本没有某个常量就退回 none，不让整屏黑掉。 */
+    var TMM = /[?&]tm=(\w+)/.exec(location.search);
+    var tmName = TMM ? TMM[1] : CFG.TONEMAP;
+    var tmConst = THREE.NoToneMapping;
+    try {
+      if (tmName === 'aces' && THREE.ACESFilmicToneMapping !== undefined) tmConst = THREE.ACESFilmicToneMapping;
+      else if (tmName === 'reinhard' && THREE.ReinhardToneMapping !== undefined) tmConst = THREE.ReinhardToneMapping;
+      else if (tmName === 'cineon' && THREE.CineonToneMapping !== undefined) tmConst = THREE.CineonToneMapping;
+      else if (tmName === 'linear' && THREE.LinearToneMapping !== undefined) tmConst = THREE.LinearToneMapping;
+      renderer.toneMapping = tmConst;
+      var TEO = /[?&]texp=([\d.]+)/.exec(location.search);
+      renderer.toneMappingExposure = TEO ? (parseFloat(TEO[1]) || 1) : CFG.TM_EXPOSURE;
+    } catch (eTm) {
+      renderer.toneMapping = THREE.NoToneMapping;
+      if (window.__diagLog) window.__diagLog('色调映射不可用，已退回 none');
+    }
+
     initCarMats();
 
     // 程序化环境反射（canvas 渐变，无外部图片；让车漆有光泽）
@@ -770,21 +881,52 @@
     try {
       var clCv = document.createElement('canvas'); clCv.width = 256; clCv.height = 128;
       var lx = clCv.getContext('2d');
-      for (var ci2 = 0; ci2 < 30; ci2++) {
-        var cx2 = 44 + Math.random() * 168, cy2 = 54 + Math.random() * 42, rr2 = 14 + Math.random() * 32;
+      for (var ci2 = 0; ci2 < 34; ci2++) {
+        var cx2 = 34 + Math.random() * 188, cy2 = 40 + Math.random() * 46, rr2 = 16 + Math.random() * 34;
         var cg2 = lx.createRadialGradient(cx2, cy2, 0, cx2, cy2, rr2);
-        cg2.addColorStop(0, 'rgba(255,255,255,.9)'); cg2.addColorStop(1, 'rgba(255,255,255,0)');
+        cg2.addColorStop(0, 'rgba(255,255,255,.95)'); cg2.addColorStop(0.55, 'rgba(255,255,255,.55)');
+        cg2.addColorStop(1, 'rgba(255,255,255,0)');
         lx.fillStyle = cg2; lx.beginPath(); lx.arc(cx2, cy2, rr2, 0, 6.284); lx.fill();
       }
+      /* v0.13.4：给云朵叠一层"顶亮底灰"的垂直渐变（source-atop 只作用于
+         已有的云像素）。旧版云是一团均匀的白色径向渐变，在屏幕上就是
+         "抹开的涂改液"——没有体积。真实云层顶部受光最亮、底部是灰蓝色
+         的阴影，这层渐变是让云"立起来"的关键，成本为零。 */
+      lx.globalCompositeOperation = 'source-atop';
+      var clSh = lx.createLinearGradient(0, 22, 0, 120);
+      clSh.addColorStop(0, 'rgba(255,255,255,0)');
+      clSh.addColorStop(0.42, 'rgba(219,230,243,.34)');
+      clSh.addColorStop(0.78, 'rgba(166,187,212,.78)');
+      clSh.addColorStop(1, 'rgba(139,162,190,.92)');
+      lx.fillStyle = clSh; lx.fillRect(0, 0, 256, 128);
+      lx.globalCompositeOperation = 'source-over';
       var clTex = srgb(new THREE.CanvasTexture(clCv));
+      /* 三层云，按"真实天空的分布"排：
+           tier 0 头顶小云   — 近、高、边缘清晰、最实
+           tier 1 中层云     — 中等距离与高度
+           tier 2 地平线云带 — 远、低、大而淡，且被大气染向地平线色
+         旧版只有一个尺寸档（200~500）且全部 opacity 0.62~0.86，
+         结果每朵都是同样大小、同样浓的白斑，天空没有层次。 */
+      var clTiers = [
+        { rad: [150, 300], y: [210, 360], sc: [90, 190], op: 0.76, haze: 0.0 },
+        { rad: [280, 490], y: [140, 240], sc: [220, 380], op: 0.58, haze: 0.22 },
+        { rad: [460, 700], y: [88, 152], sc: [400, 660], op: 0.40, haze: 0.5 }
+      ];
       for (var ci3 = 0; !hideCloud && ci3 < CFG.CLOUD_N; ci3++) {
-        var spr = new THREE.Sprite(new THREE.SpriteMaterial({
-          map: clTex, fog: false, depthWrite: false, transparent: true, opacity: 0.62 + Math.random() * 0.24
-        }));
-        var ang2 = Math.random() * 6.283, rad2 = 300 + Math.random() * 400;
-        spr.position.set(Math.cos(ang2) * rad2, 150 + Math.random() * 230, Math.sin(ang2) * rad2);
-        var sc = 200 + Math.random() * 300;
-        spr.scale.set(sc, sc * 0.48, 1);
+        var tier = clTiers[ci3 % clTiers.length];
+        var sprMat = new THREE.SpriteMaterial({
+          map: clTex, fog: false, depthWrite: false, transparent: true, opacity: tier.op
+        });
+        /* 低空的云退向地平线色 —— 用的是同一个 atmColor 思路，
+           所以云的"远"和山的"远"是同一套色阶，不会各说各话 */
+        sprMat.color = new THREE.Color(0xffffff).lerp(atmHorizon, tier.haze);
+        var spr = new THREE.Sprite(sprMat);
+        var ang2 = Math.random() * 6.283;
+        var rad2 = tier.rad[0] + Math.random() * (tier.rad[1] - tier.rad[0]);
+        var yy = tier.y[0] + Math.random() * (tier.y[1] - tier.y[0]);
+        spr.position.set(Math.cos(ang2) * rad2, yy, Math.sin(ang2) * rad2);
+        var sc = tier.sc[0] + Math.random() * (tier.sc[1] - tier.sc[0]);
+        spr.scale.set(sc, sc * 0.46, 1);
         skyGrp.add(spr); clouds.push(spr);
       }
     } catch (eCl) { /* 忽略 */ }
@@ -828,27 +970,76 @@
       scene.add(shore);
     } catch (eLk) { /* 忽略 */ }
 
-    /* —— v6.0 远山：三层景深（近森林丘陵 / 中青蓝山 / 远淡蓝剪影） —— */
+    /* —— v0.13.4 远山：3 层 → 7 层大气分层 ——
+       旧版 3 层只够表达"近/中/远"三档，层与层之间必然留下空档；再加
+       flatShading（5 边形锥体每面一个法线）+ 每面单色 + fog:false，
+       每座山在屏幕上就是一大块纯色（实测连续 170px 同一个 #527090）。
+       现在：
+         ① 7 层，半径 440 → 2000m 连续递增，层间互相重叠 → 形成"山脊线"
+            而不是"一排孤立的金字塔"。每层实例数刻意取到让圆周上相邻两座
+            相接（πR/n ≤ 锥半径），否则层内会有缝、露出下一层。
+         ② 半径越大 → 山越高越宽（真实山脉远处显得更雄伟，不是更小）。
+         ③ 颜色不再手写三组配色，交给 atmColor(base, 半径)：
+            越远越淡、越低饱和，由那一条统一曲线自动生成。
+         ④ 关掉 flatShading、辐射段 5 → 7：山体内部有受光面→背光面的
+            明暗过渡，不再是一块平色。
+         ⑤ InstancedMesh：整层一次绘制调用（7 次 vs 约 168 次），
+            逐实例颜色走 setColorAt（±7% 微扰，同一层也不能是同一色号）。
+       ⚠️ frustumCulled = false 是必须的：InstancedMesh 的包围球按"基础几何"
+          计算，不含实例位置，保持默认会让整层被误剔除 → 远山成片消失。 */
     var hideMtn = /[?&]hide=mtn\b/.test(location.search);   // 调试：排除远山
-    var mtnRings = [
-      { r0: 400, r1: 480, h0: 55, h1: 125, n: 26, cr0: 38, cr1: 62, cols: [0x5d7f62, 0x6f9470] },
-      { r0: 540, r1: 720, h0: 95, h1: 235, n: 24, cr0: 68, cr1: 118, cols: [0x7d9db6, 0x92afc5] },
-      { r0: 800, r1: 1020, h0: 140, h1: 320, n: 20, cr0: 120, cr1: 185, cols: [0xa9c5db, 0xbfd6e7] }
+    var MTN_RINGS = [
+      { r: 440, h: [40, 85], cr: [56, 88], n: 24, base: 0x4f6a4d },
+      { r: 560, h: [55, 110], cr: [66, 100], n: 26, base: 0x546e52 },
+      { r: 700, h: [75, 155], cr: [82, 125], n: 26, base: 0x5e7280 },
+      { r: 880, h: [100, 200], cr: [102, 150], n: 26, base: 0x64798a },
+      { r: 1120, h: [130, 260], cr: [140, 200], n: 24, base: 0x6b7f90 },
+      { r: 1500, h: [170, 330], cr: [205, 290], n: 22, base: 0x71859a },
+      { r: 2000, h: [210, 420], cr: [300, 420], n: 20, base: 0x76899e }
     ];
-    for (var ri = 0; !hideMtn && ri < mtnRings.length; ri++) {
-      var ring = mtnRings[ri];
-      var mA = new THREE.MeshLambertMaterial({ color: ring.cols[0], flatShading: true, fog: false });
-      var mB = new THREE.MeshLambertMaterial({ color: ring.cols[1], flatShading: true, fog: false });
+    var mtnUnit = new THREE.ConeGeometry(1, 1, 7);   // 单位锥，全部层共用（不可 dispose）
+    var mtnMtx = new THREE.Matrix4(), mtnQuat = new THREE.Quaternion();
+    var mtnPos = new THREE.Vector3(), mtnScl = new THREE.Vector3();
+    var mtnAxisY = new THREE.Vector3(0, 1, 0), mtnTint = new THREE.Color();
+    for (var ri = 0; !hideMtn && ri < MTN_RINGS.length; ri++) {
+      var ring = MTN_RINGS[ri];
+      var baseCol = atmColor(ring.base, ring.r);
+      // 先收集全部实例（主峰 + 山肩），再按实际数量建 InstancedMesh
+      var seeds = [];
       for (var mi = 0; mi < ring.n; mi++) {
-        var ang = (mi / ring.n) * Math.PI * 2 + (Math.random() - 0.5) * 0.22;
-        var rad = ring.r0 + Math.random() * (ring.r1 - ring.r0);
-        var hgt = ring.h0 + Math.random() * (ring.h1 - ring.h0);
-        var crad = ring.cr0 + Math.random() * (ring.cr1 - ring.cr0);
-        var mtn = new THREE.Mesh(new THREE.ConeGeometry(crad, hgt, 5), (mi % 3 === 0) ? mB : mA);
-        mtn.position.set(Math.cos(ang) * rad, hgt * 0.5 - 8, Math.sin(ang) * rad);
-        mtn.rotation.y = Math.random() * 3;
-        scene.add(mtn);
+        var ang = (mi / ring.n) * Math.PI * 2 + (Math.random() - 0.5) * 0.18;
+        var rad = ring.r * (0.92 + Math.random() * 0.16);
+        var hgt = ring.h[0] + Math.random() * (ring.h[1] - ring.h[0]);
+        var crad = ring.cr[0] + Math.random() * (ring.cr[1] - ring.cr[0]);
+        seeds.push({ a: ang, r: rad, h: hgt, c: crad });
+        /* 山肩：主峰侧面挂一座矮锥，打散"完美圆锥"的呆板感 */
+        if (Math.random() < 0.45) {
+          var da = 0.9 * Math.PI * 2 / ring.n;
+          seeds.push({
+            a: ang + da * (Math.random() < 0.5 ? 1 : -1),
+            r: rad * (1 + (Math.random() - 0.5) * 0.06),
+            h: hgt * (0.42 + Math.random() * 0.3),
+            c: crad * (0.6 + Math.random() * 0.3)
+          });
+        }
       }
+      var mtnMat = new THREE.MeshLambertMaterial({ fog: false, flatShading: false });
+      var mtnInst = new THREE.InstancedMesh(mtnUnit, mtnMat, seeds.length);
+      mtnInst.frustumCulled = false;
+      mtnInst.matrixAutoUpdate = false;
+      for (var si = 0; si < seeds.length; si++) {
+        var sd = seeds[si];
+        mtnPos.set(Math.cos(sd.a) * sd.r, sd.h * 0.5 - 8, Math.sin(sd.a) * sd.r);
+        mtnQuat.setFromAxisAngle(mtnAxisY, Math.random() * 3);
+        mtnScl.set(sd.c, sd.h, sd.c);
+        mtnMtx.compose(mtnPos, mtnQuat, mtnScl);
+        mtnInst.setMatrixAt(si, mtnMtx);
+        mtnTint.copy(baseCol).multiplyScalar(0.93 + Math.random() * 0.14);
+        mtnInst.setColorAt(si, mtnTint);
+      }
+      mtnInst.instanceMatrix.needsUpdate = true;
+      if (mtnInst.instanceColor) mtnInst.instanceColor.needsUpdate = true;
+      scene.add(mtnInst);
     }
 
     buildRoad();
@@ -1092,15 +1283,23 @@
   function makeWindowTexture() {
     var c = document.createElement('canvas'); c.width = 64; c.height = 64;
     var x = c.getContext('2d');
-    x.fillStyle = '#79879a'; x.fillRect(0, 0, 64, 64);          // 墙面
+    /* v0.13.4：墙面/窗户整体提亮。
+       旧墙色 #79879a、窗色 rgba(44,62,86,.88)。这两个值是在"贴图被当线性
+       采样、整场景偏亮"的年代定的；v0.13.3 给贴图标了 SRGBColorSpace 之后
+       它们被正确解码 → 立刻暗下去约一档，楼群就变成了远景里一排近黑的方块
+       （与旁边明亮的天空对比过强，是画面"假"的又一个来源）。
+       现在按"最终渲染值 ≈ 设计值"反推，把墙面提到 #bcc8d6、窗提到中蓝灰。 */
+    x.fillStyle = '#bcc8d6'; x.fillRect(0, 0, 64, 64);
     for (var r = 0; r < 4; r++) {
+      /* 随机加深某些楼层，打破"整齐划一的窗格"——真实楼宇每层亮度都不同 */
+      if (Math.random() < 0.3) { x.fillStyle = 'rgba(150,164,182,.45)'; x.fillRect(0, r * 16, 64, 16); }
       for (var q = 0; q < 4; q++) {
-        var lit = Math.random() < 0.16;                          // 少量亮灯窗
-        x.fillStyle = lit ? 'rgba(255,224,155,.95)' : 'rgba(44,62,86,.88)';
-        x.fillRect(q * 16 + 3.5, r * 16 + 4, 9, 9);
+        var lit = Math.random() < 0.17;                          // 少量亮灯窗
+        x.fillStyle = lit ? 'rgba(255,232,178,.92)' : 'rgba(93,116,146,.9)';
+        x.fillRect(q * 16 + 3.5, r * 16 + 4.5, 9, 8);
       }
     }
-    var t = srgb(new THREE.CanvasTexture(c));      // v0.13.3：窗户贴图（唯一未标记的颜色贴图，会偏白）
+    var t = srgb(new THREE.CanvasTexture(c));
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     return t;
   }
@@ -1110,9 +1309,11 @@
     var winTex = makeWindowTexture();
     var bMats = [
       new THREE.MeshLambertMaterial({ color: 0xf2f4f7, map: winTex }),
-      new THREE.MeshLambertMaterial({ color: 0xdbe6f2, map: winTex }),
-      new THREE.MeshLambertMaterial({ color: 0xf0e3d2, map: winTex }),
-      new THREE.MeshLambertMaterial({ color: 0xc9d6e4, map: winTex })
+      new THREE.MeshLambertMaterial({ color: 0xe2ebf4, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xf3ece1, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xd8e4f0, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xe9eef5, map: winTex }),
+      new THREE.MeshLambertMaterial({ color: 0xf0e9dd, map: winTex })
     ];
     /* ⚠️ 修复：旧版楼群贴着赛道布置（侧向 -22~58m、高 14~52m、每 6 采样点一组），
        玩家在赛道上时视野被楼体完全填死（俯视验证：整屏灰蓝）。
@@ -1124,7 +1325,10 @@
       for (var k = 0; k < n; k++) {
         var w = 9 + Math.random() * 15;
         var d = 9 + Math.random() * 15;
-        var h = 16 + Math.random() * 34;
+        /* v0.13.4：高度分布拉开。旧版统一 16~50m，整条天际线是一排等高的
+           方块；现在多数是 15~52m 的中层，另有约 12% 拔到 60~110m 的塔楼，
+           高低错落才有城市轮廓线。 */
+        var h = (Math.random() < 0.12) ? (60 + Math.random() * 50) : (15 + Math.random() * 37);
         var geo = new THREE.BoxGeometry(w, h, d);
         // 按楼体尺寸缩放 UV，让窗户保持 ~4m×3.6m 的固定大小
         var uv = geo.attributes.uv;
